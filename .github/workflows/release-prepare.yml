@@ -1,0 +1,153 @@
+name: Prepare Release
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      prerelease_tag:
+        description: Pre-release tag to use when bump is prerelease.
+        required: true
+        default: alpha
+        type: choice
+        options:
+          - alpha
+          - beta
+          - rc
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: Prepare Release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+        run: |
+          VERSION="$(.github/scripts/bump-version.sh "$BUMP" "$PRERELEASE_TAG")"
+          TAG="v$VERSION"
+          BRANCH="release/$TAG"
+
+          echo "New version: $VERSION"
+          echo "Tag: $TAG"
+          echo "Branch: $BRANCH"
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "branch=$BRANCH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog section
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Generating changelog from $PREVIOUS_TAG to HEAD"
+            COMMITS=$(git log --pretty=format:"- %s" "$PREVIOUS_TAG"..HEAD --no-merges | grep -v "^- chore: release" || true)
+          else
+            echo "No previous tag found, generating full changelog"
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- chore: release" || true)
+          fi
+
+          {
+            echo "## [$VERSION] - $TODAY"
+            echo ""
+            if [ -n "$COMMITS" ]; then
+              echo "$COMMITS"
+            else
+              echo "- Initial release"
+            fi
+            echo ""
+          } > new_section.txt
+
+          cat new_section.txt
+
+      - name: Update CHANGELOG.md
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            {
+              head -n 4 CHANGELOG.md
+              cat new_section.txt
+              tail -n +5 CHANGELOG.md
+            } > CHANGELOG.new.md
+            mv CHANGELOG.new.md CHANGELOG.md
+          else
+            {
+              echo "# Changelog"
+              echo ""
+              echo "All notable changes to this project will be documented in this file."
+              echo ""
+              cat new_section.txt
+            } > CHANGELOG.md
+          fi
+
+          rm new_section.txt
+          cat CHANGELOG.md
+
+      - name: Create release branch and push
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          git checkout -B "$BRANCH"
+          git add CMakeLists.txt packaging/PKGBUILD packaging/blink.spec CHANGELOG.md
+          git commit -m "chore: release $TAG"
+          git push --force-with-lease origin "$BRANCH"
+
+      - name: Ensure release label
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh label create release --description "Release preparation" --color 0E8A16 --force
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          TITLE="Release $TAG"
+          if [[ "$VERSION" == *-* ]]; then
+            TITLE="Prerelease $TAG"
+          fi
+
+          gh pr create \
+            --title "$TITLE" \
+            --body "## Release $TAG
+
+          This PR prepares the release of version $VERSION.
+
+          ### Changes
+          - Updated CMakeLists.txt, packaging/PKGBUILD and packaging/blink.spec to $VERSION
+          - Updated CHANGELOG.md with changes since the previous tag
+
+          ### After Merge
+          When this PR is merged, the release workflow will build the Arch Linux and Fedora packages, tag the merge commit, and create the GitHub Release." \
+            --label release \
+            --base main

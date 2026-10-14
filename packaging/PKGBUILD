@@ -1,0 +1,24 @@
+# Builds the source tree this file lives in: cd packaging && makepkg -sif
+pkgname=blink
+# pkgver and pkgrel are updated by .github/scripts/bump-version.sh when a release is prepared.
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Fast screenshots and screen recordings for KDE Plasma'
+arch=('x86_64' 'aarch64')
+license=('Apache-2.0')
+depends=('qt6-base' 'kglobalaccel' 'kguiaddons' 'layer-shell-qt' 'libpipewire' 'ffmpeg' 'zlib' 'hicolor-icon-theme')
+makedepends=('cmake' 'ninja' 'plasma-wayland-protocols')
+optdepends=('nvidia-utils: NVENC hardware encoding on NVIDIA GPUs'
+            'intel-media-driver: VA-API hardware encoding on Intel GPUs')
+
+build() {
+  cmake -S "$startdir/.." -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

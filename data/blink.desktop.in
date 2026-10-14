@@ -1,0 +1,32 @@
+[Desktop Entry]
+Type=Application
+Name=Blink
+GenericName=Screenshot Tool
+Comment=Take screenshots and record the screen
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink
+Icon=blink
+Terminal=false
+StartupNotify=false
+Categories=Qt;KDE;Utility;
+Keywords=screenshot;screen;capture;snip;region;window;record;recording;video;clipboard;upload;s3;
+# KWin only lets executables listed by a desktop file take screenshots and record the screen. It matches Exec
+# against the executable's path, so Exec must be absolute: a bare command name is never found.
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1
+Actions=CaptureRegion;CaptureWindow;CaptureFullscreen;Record;
+
+[Desktop Action CaptureRegion]
+Name=Capture Region
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --region
+
+[Desktop Action CaptureWindow]
+Name=Capture Active Window
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --window
+
+[Desktop Action CaptureFullscreen]
+Name=Capture Full Screen
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --fullscreen
+
+[Desktop Action Record]
+Name=Start or Stop Recording
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --record

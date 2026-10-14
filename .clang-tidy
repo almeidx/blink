@@ -1,0 +1,47 @@
+# Static analysis for blink, same checks as watchpoint (CI runs it with clang-tidy 22, Fedora 44).
+# Run: cmake -S . -B build -G Ninja && cmake --build build && run-clang-tidy -p build -quiet '/(src|recorder)/[^/]*$'
+# (the build generates the moc and Wayland protocol sources the analysis needs).
+# The regexes match files directly inside src/ and recorder/, so moc and wayland-scanner output under build/ is never analyzed.
+#
+# Disabled checks and why:
+#  - bugprone-suspicious-stringview-data-usage: false positives on string_view(sv.data(), n)
+#  - bugprone-switch-missing-default-case: switches over enums list every value and fall through to a trailing return
+#  - bugprone-implicit-widening-of-multiplication-result: `64 * 1024` buffer sizes
+#  - bugprone-easily-swappable-parameters, bugprone-narrowing-conversions: noise for pixel and syscall heavy code
+#  - modernize-deprecated-headers: POSIX headers (<time.h>, <signal.h>) are included for POSIX functions, not the C library
+#  - modernize-return-braced-init-list: `return QVariant(...)` is clearer than `return {...}` for Qt types
+#  - modernize-use-scoped-lock, modernize-use-integer-sign-comparison, modernize-use-trailing-return-type,
+#    modernize-avoid-c-arrays, modernize-use-nodiscard, modernize-use-designated-initializers, modernize-use-ranges: style churn
+#  - performance-enum-size, performance-inefficient-string-concatenation: not on a hot path
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-suspicious-stringview-data-usage,
+  -bugprone-switch-missing-default-case,
+  -bugprone-implicit-widening-of-multiplication-result,
+  cert-err34-c,
+  misc-unused-using-decls,
+  misc-unused-alias-decls,
+  misc-redundant-expression,
+  misc-static-assert,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -modernize-use-designated-initializers,
+  -modernize-use-ranges,
+  -modernize-use-scoped-lock,
+  -modernize-use-integer-sign-comparison,
+  -modernize-deprecated-headers,
+  -modernize-return-braced-init-list,
+  performance-*,
+  -performance-enum-size,
+  -performance-inefficient-string-concatenation,
+  readability-container-size-empty,
+  readability-redundant-*,
+  readability-simplify-boolean-expr,
+  readability-static-definition-in-anonymous-namespace
+WarningsAsErrors: '*'
+HeaderFilterRegex: '/(src|recorder)/[^/]*$'

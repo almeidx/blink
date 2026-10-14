@@ -1,0 +1,142 @@
+name: Publish Release
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  version:
+    name: Get Version
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(sed -n 's/^set(BLINK_VERSION \(.*\))$/\1/p' CMakeLists.txt)
+          if [ -z "$VERSION" ]; then
+            echo "No set(BLINK_VERSION ...) in CMakeLists.txt"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "Version: $VERSION"
+          echo "Tag: $TAG"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  packages:
+    name: Packages
+    needs: version
+    uses: ./.github/workflows/packages.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+  release:
+    name: Create Tag & Release
+    needs: [version, packages]
+    runs-on: ubuntu-latest
+    # Not workflow-level: every closed PR starts this workflow, and a newer run cancels a pending one in its group.
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      SHA: ${{ github.event.pull_request.merge_commit_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      # Releases are immutable once published, so check the assets before anything is tagged.
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+          PKGVER="${VERSION/-/}"
+          RPM_VERSION="${VERSION/-/\~}"
+          shopt -s nullglob
+          arch=(release-assets/blink-"$PKGVER"-*-x86_64.pkg.tar.zst)
+          fedora=(release-assets/blink-"$RPM_VERSION"-*.x86_64.rpm)
+          if [ "${#arch[@]}" -ne 1 ] || [ "${#fedora[@]}" -ne 1 ]; then
+            echo "Expected one Arch package for $PKGVER and one Fedora package for $RPM_VERSION"
+            exit 1
+          fi
+
+      - name: Extract changelog for this version
+        run: |
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "## [" ver "]") == 1) found=1
+            }
+            found { print }
+          ' CHANGELOG.md > release_notes.txt
+
+          if [ ! -s release_notes.txt ]; then
+            echo "## [$VERSION]" > release_notes.txt
+            echo "" >> release_notes.txt
+            echo "Release $VERSION" >> release_notes.txt
+          fi
+
+          cat release_notes.txt
+
+      # A rerun after a failed release step reuses the tag it already pushed for this commit.
+      - name: Create tag
+        run: |
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            if [ "$(git rev-parse "$TAG^{commit}")" != "$SHA" ]; then
+              echo "Tag $TAG already exists on another commit"
+              exit 1
+            fi
+            echo "Tag $TAG already points to $SHA"
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
+
+      # Publishing makes the release and its assets immutable, so upload everything to a draft first.
+      # A draft left behind by a failed run is replaced.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "Release $TAG is already published"
+              exit 1
+            fi
+            gh release delete "$TAG" --yes
+          fi
+
+          args=(--draft --verify-tag --title "$TAG" --notes-file release_notes.txt)
+          if [[ "$VERSION" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "$TAG" release-assets/* "${args[@]}"
+          gh release edit "$TAG" --draft=false

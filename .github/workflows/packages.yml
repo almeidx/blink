@@ -1,0 +1,80 @@
+name: Packages
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to build. Defaults to the triggering ref.
+        required: false
+        default: ""
+        type: string
+permissions:
+  contents: read
+jobs:
+  arch:
+    name: Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      # makepkg refuses to run as root; --syncdeps installs depends/makedepends from the PKGBUILD.
+      - name: Prepare build user
+        run: |
+          pacman -Syu --noconfirm
+          useradd --create-home builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          chown -R builder: .
+
+      - name: Build package
+        working-directory: packaging
+        run: sudo -u builder makepkg --syncdeps --noconfirm
+
+      # The [0-9] skips the blink-debug split package.
+      - name: Collect package
+        run: |
+          mkdir -p dist
+          cp packaging/blink-[0-9]*.pkg.tar.zst dist/
+          cd dist
+          for package in *; do sha256sum "$package" > "$package.sha256"; done
+          ls -la
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: blink-arch
+          path: dist/*
+          if-no-files-found: error
+
+  fedora:
+    name: Fedora
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install rpm-build
+        run: dnf -y install rpm-build 'dnf-command(builddep)'
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install build dependencies
+        run: dnf -y builddep packaging/blink.spec
+
+      - name: Build package
+        run: rpmbuild -bb --build-in-place --define "_topdir $PWD/rpmbuild" packaging/blink.spec
+
+      # The [0-9] skips the debuginfo and debugsource packages.
+      - name: Collect package
+        run: |
+          mkdir -p dist
+          cp rpmbuild/RPMS/*/blink-[0-9]*.rpm dist/
+          cd dist
+          for package in *; do sha256sum "$package" > "$package.sha256"; done
+          ls -la
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: blink-fedora
+          path: dist/*
+          if-no-files-found: error

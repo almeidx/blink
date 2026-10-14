@@ -1,0 +1,47 @@
+# Same style as watchpoint. Check: clang-format --dry-run --Werror src/*.cpp src/*.h recorder/*.cpp recorder/*.h
+BasedOnStyle: WebKit
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 140
+PointerAlignment: Right
+QualifierAlignment: Leave
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: false
+  AfterStruct: false
+  AfterNamespace: false
+  AfterEnum: false
+  AfterControlStatement: Never
+  BeforeElse: false
+  BeforeLambdaBody: false
+  SplitEmptyFunction: true
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerIndentWidth: 4
+PackConstructorInitializers: NextLine
+BreakTemplateDeclarations: Yes
+BreakBeforeTernaryOperators: true
+BreakBeforeBinaryOperators: NonAssignment
+AlignAfterOpenBracket: Align
+AlignOperands: AlignAfterOperator
+AlignConsecutiveDeclarations: false
+AlignTrailingComments:
+  Kind: Leave
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AllowShortEnumsOnASingleLine: true
+Cpp11BracedListStyle: true
+SpaceBeforeCpp11BracedList: false
+SpaceInEmptyBraces: Never
+SpaceAfterTemplateKeyword: false
+NamespaceIndentation: None
+FixNamespaceComments: true
+IndentCaseLabels: false
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
+PenaltyBreakAssignment: 100

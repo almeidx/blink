@@ -1,0 +1,10 @@
+/build/
+/.cache/
+/packaging/src/
+/packaging/pkg/
+/packaging/*.pkg.tar.*
+# rpmbuild --build-in-place
+/rpmbuild/
+/redhat-linux-build/
+/debug*.list
+/elfbins.list
