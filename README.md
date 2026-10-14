@@ -54,10 +54,16 @@ Blink takes these shortcuts from Spectacle on its first start. Change them in Sy
 
 The command line has the same actions: `blink --region`, `--fullscreen`, `--window`, `--record` and `--settings`.
 
-Captures are copied to the clipboard. Recordings are also saved to `~/Videos/Blink`. Captures of a window are named
-after its app, like `Firefox_2026-10-14_13-26-43.png`.
+Captures are copied to the clipboard. Recordings are also saved to `~/Videos/Blink`, in a folder for each month.
+Captures of a window are named after its app, like `Firefox_2026-10-14_13-26-43.png`.
 
 Settings, including the S3 secret key, are kept in `~/.config/blink/blink.conf`, readable only by you.
+
+### Folders
+
+**Subfolder**, in the Screenshots and Recording settings, sets the folder saved captures go in. The default
+`{year}-{month}` gives `2026-10`, `{year}/{month}` gives `2026/10`, and empty saves straight into the main folder. It
+takes the date, time and computer placeholders below.
 
 ### Upload paths
 

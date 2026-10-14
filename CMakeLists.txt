@@ -62,6 +62,7 @@ qt_add_executable(blink
     src/kwinscreenshot.cpp src/kwinscreenshot.h
     src/main.cpp
     src/notifier.cpp src/notifier.h
+    src/pathpattern.cpp src/pathpattern.h
     src/pngencoder.cpp src/pngencoder.h
     src/recorderprotocol.h
     src/recording.cpp src/recording.h
@@ -70,7 +71,6 @@ qt_add_executable(blink
     src/settings.cpp src/settings.h
     src/settingsdialog.cpp src/settingsdialog.h
     src/uploader.cpp src/uploader.h
-    src/uploadpath.cpp src/uploadpath.h
     src/windowlist.cpp src/windowlist.h
 )
 if(QT_KNOWN_POLICY_QTP0006) # Qt 6.12+: keep the generated protocol symbols internal

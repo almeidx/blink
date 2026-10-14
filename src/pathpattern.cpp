@@ -1,4 +1,4 @@
-#include "uploadpath.h"
+#include "pathpattern.h"
 
 #include <QGuiApplication>
 #include <QLocale>
@@ -21,6 +21,8 @@ using namespace Qt::StringLiterals;
 
 // S3 limits object keys to 1024 bytes of UTF-8.
 constexpr int kMaxKeyBytes = 1024;
+// Linux file systems limit each name in a path to 255 bytes.
+constexpr int kMaxNameBytes = 255;
 // The length the menu inserts placeholders such as {random:8} with; their descriptions say 8.
 constexpr int kMenuLength = 8;
 // Of an app's name in a file name: keeps it far below the 255 bytes file systems allow.
@@ -39,7 +41,7 @@ struct Spec {
     Category category;
     bool takesLength; // {random:8}
     const char *description;
-    QString (*value)(const UploadInfo &info, int length);
+    QString (*value)(const CaptureInfo &info, int length);
 };
 
 // From the system's CSPRNG: links to uploads are often public, so their random parts must not be guessable.
@@ -73,51 +75,51 @@ QString userName()
 
 // Grouped by category, in menu order.
 constexpr std::array kSpecs{
-    Spec{"filename"_L1, Category::File, false, QT_TRANSLATE_NOOP("blink::UploadPath", "File name, without extension"),
-         [](const UploadInfo &info, int) { return info.fileName; }},
-    Spec{"extension"_L1, Category::File, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Extension: png or mp4"),
-         [](const UploadInfo &info, int) { return info.extension; }},
-    Spec{"random"_L1, Category::Random, true, QT_TRANSLATE_NOOP("blink::UploadPath", "8 random letters and digits"),
-         [](const UploadInfo &, int length) { return randomText(kAlphanumeric, length); }},
+    Spec{"filename"_L1, Category::File, false, QT_TRANSLATE_NOOP("blink::PathPattern", "File name, without extension"),
+         [](const CaptureInfo &info, int) { return info.fileName; }},
+    Spec{"extension"_L1, Category::File, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Extension: png or mp4"),
+         [](const CaptureInfo &info, int) { return info.extension; }},
+    Spec{"random"_L1, Category::Random, true, QT_TRANSLATE_NOOP("blink::PathPattern", "8 random letters and digits"),
+         [](const CaptureInfo &, int length) { return randomText(kAlphanumeric, length); }},
     Spec{"random-readable"_L1, Category::Random, true,
-         QT_TRANSLATE_NOOP("blink::UploadPath", "8 random letters and digits, no look-alikes"),
-         [](const UploadInfo &, int length) { return randomText(kReadable, length); }},
-    Spec{"random-digits"_L1, Category::Random, true, QT_TRANSLATE_NOOP("blink::UploadPath", "8 random digits"),
-         [](const UploadInfo &, int length) { return randomText(kDigits, length); }},
-    Spec{"random-hex"_L1, Category::Random, true, QT_TRANSLATE_NOOP("blink::UploadPath", "8 random hexadecimal digits"),
-         [](const UploadInfo &, int length) { return randomText(kHexadecimal, length); }},
-    Spec{"uuid"_L1, Category::Random, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Random UUID"),
-         [](const UploadInfo &, int) { return QUuid::createUuid().toString(QUuid::WithoutBraces); }},
-    Spec{"year"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Year"),
-         [](const UploadInfo &info, int) { return QString::number(info.time.date().year()); }},
-    Spec{"month"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Month, 01 to 12"),
-         [](const UploadInfo &info, int) { return padded(info.time.date().month(), 2); }},
-    Spec{"month-name"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Month name, in English"),
-         [](const UploadInfo &info, int) { return QLocale::c().monthName(info.time.date().month()); }},
-    Spec{"day"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Day of the month, 01 to 31"),
-         [](const UploadInfo &info, int) { return padded(info.time.date().day(), 2); }},
-    Spec{"weekday"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Day of the week, in English"),
-         [](const UploadInfo &info, int) { return QLocale::c().dayName(info.time.date().dayOfWeek()); }},
-    Spec{"week"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Week of the year"),
-         [](const UploadInfo &info, int) { return padded(weekOfYear(info.time.date()), 2); }},
-    Spec{"hour"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Hour, 00 to 23"),
-         [](const UploadInfo &info, int) { return padded(info.time.time().hour(), 2); }},
-    Spec{"minute"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Minute"),
-         [](const UploadInfo &info, int) { return padded(info.time.time().minute(), 2); }},
-    Spec{"second"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Second"),
-         [](const UploadInfo &info, int) { return padded(info.time.time().second(), 2); }},
-    Spec{"millisecond"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Millisecond, 000 to 999"),
-         [](const UploadInfo &info, int) { return padded(info.time.time().msec(), 3); }},
-    Spec{"unix"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Unix time, in seconds"),
-         [](const UploadInfo &info, int) { return QString::number(info.time.toSecsSinceEpoch()); }},
-    Spec{"width"_L1, Category::Size, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Width in pixels"),
-         [](const UploadInfo &info, int) { return info.size.width() > 0 ? QString::number(info.size.width()) : QString(); }},
-    Spec{"height"_L1, Category::Size, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Height in pixels"),
-         [](const UploadInfo &info, int) { return info.size.height() > 0 ? QString::number(info.size.height()) : QString(); }},
-    Spec{"username"_L1, Category::Computer, false, QT_TRANSLATE_NOOP("blink::UploadPath", "User name"),
-         [](const UploadInfo &, int) { return userName(); }},
-    Spec{"hostname"_L1, Category::Computer, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Computer name"),
-         [](const UploadInfo &, int) { return QSysInfo::machineHostName(); }},
+         QT_TRANSLATE_NOOP("blink::PathPattern", "8 random letters and digits, no look-alikes"),
+         [](const CaptureInfo &, int length) { return randomText(kReadable, length); }},
+    Spec{"random-digits"_L1, Category::Random, true, QT_TRANSLATE_NOOP("blink::PathPattern", "8 random digits"),
+         [](const CaptureInfo &, int length) { return randomText(kDigits, length); }},
+    Spec{"random-hex"_L1, Category::Random, true, QT_TRANSLATE_NOOP("blink::PathPattern", "8 random hexadecimal digits"),
+         [](const CaptureInfo &, int length) { return randomText(kHexadecimal, length); }},
+    Spec{"uuid"_L1, Category::Random, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Random UUID"),
+         [](const CaptureInfo &, int) { return QUuid::createUuid().toString(QUuid::WithoutBraces); }},
+    Spec{"year"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Year"),
+         [](const CaptureInfo &info, int) { return QString::number(info.time.date().year()); }},
+    Spec{"month"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Month, 01 to 12"),
+         [](const CaptureInfo &info, int) { return padded(info.time.date().month(), 2); }},
+    Spec{"month-name"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Month name, in English"),
+         [](const CaptureInfo &info, int) { return QLocale::c().monthName(info.time.date().month()); }},
+    Spec{"day"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Day of the month, 01 to 31"),
+         [](const CaptureInfo &info, int) { return padded(info.time.date().day(), 2); }},
+    Spec{"weekday"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Day of the week, in English"),
+         [](const CaptureInfo &info, int) { return QLocale::c().dayName(info.time.date().dayOfWeek()); }},
+    Spec{"week"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Week of the year"),
+         [](const CaptureInfo &info, int) { return padded(weekOfYear(info.time.date()), 2); }},
+    Spec{"hour"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Hour, 00 to 23"),
+         [](const CaptureInfo &info, int) { return padded(info.time.time().hour(), 2); }},
+    Spec{"minute"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Minute"),
+         [](const CaptureInfo &info, int) { return padded(info.time.time().minute(), 2); }},
+    Spec{"second"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Second"),
+         [](const CaptureInfo &info, int) { return padded(info.time.time().second(), 2); }},
+    Spec{"millisecond"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Millisecond, 000 to 999"),
+         [](const CaptureInfo &info, int) { return padded(info.time.time().msec(), 3); }},
+    Spec{"unix"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Unix time, in seconds"),
+         [](const CaptureInfo &info, int) { return QString::number(info.time.toSecsSinceEpoch()); }},
+    Spec{"width"_L1, Category::Size, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Width in pixels"),
+         [](const CaptureInfo &info, int) { return info.size.width() > 0 ? QString::number(info.size.width()) : QString(); }},
+    Spec{"height"_L1, Category::Size, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Height in pixels"),
+         [](const CaptureInfo &info, int) { return info.size.height() > 0 ? QString::number(info.size.height()) : QString(); }},
+    Spec{"username"_L1, Category::Computer, false, QT_TRANSLATE_NOOP("blink::PathPattern", "User name"),
+         [](const CaptureInfo &, int) { return userName(); }},
+    Spec{"hostname"_L1, Category::Computer, false, QT_TRANSLATE_NOOP("blink::PathPattern", "Computer name"),
+         [](const CaptureInfo &, int) { return QSysInfo::machineHostName(); }},
 };
 
 const Spec *find(QStringView name)
@@ -129,21 +131,27 @@ const Spec *find(QStringView name)
     return nullptr;
 }
 
+// See PathPattern::Target.
+bool takes(PathPattern::Target target, Category category)
+{
+    return target == PathPattern::Target::ObjectKey || category == Category::Time || category == Category::Computer;
+}
+
 QString categoryTitle(Category category)
 {
     switch (category) {
     case Category::File:
-        return UploadPath::tr("File");
+        return PathPattern::tr("File");
     case Category::Random:
-        return UploadPath::tr("Random");
+        return PathPattern::tr("Random");
     case Category::Time:
-        return UploadPath::tr("Date and time");
+        return PathPattern::tr("Date and time");
     case Category::Size:
-        return UploadPath::tr("Size");
+        return PathPattern::tr("Size");
     case Category::Computer:
         break;
     }
-    return UploadPath::tr("Computer");
+    return PathPattern::tr("Computer");
 }
 
 } // namespace
@@ -169,10 +177,10 @@ QString captureName(const QDateTime &time, QStringView app)
     return (kept.isEmpty() ? u"Blink"_s : kept.toString()) + u'_' + time.toString(u"yyyy-MM-dd_HH-mm-ss"_s);
 }
 
-QString UploadPath::expand(QStringView pattern, const UploadInfo &info, QString *error)
+QString PathPattern::expand(QStringView pattern, Target target, const CaptureInfo &info, QString *error)
 {
-    QString key;
-    key.reserve(pattern.size());
+    QString path;
+    path.reserve(pattern.size());
     for (qsizetype i = 0; i < pattern.size();) {
         const QChar c = pattern[i];
         if (c == u'}') {
@@ -180,7 +188,7 @@ QString UploadPath::expand(QStringView pattern, const UploadInfo &info, QString 
             return {};
         }
         if (c != u'{') {
-            key += c;
+            path += c;
             ++i;
             continue;
         }
@@ -198,6 +206,10 @@ QString UploadPath::expand(QStringView pattern, const UploadInfo &info, QString 
             *error = tr("%1 is not a placeholder.").arg(placeholder);
             return {};
         }
+        if (!takes(target, spec->category)) {
+            *error = tr("%1 can't be used in a subfolder.").arg(placeholder);
+            return {};
+        }
         int length = 0;
         if (spec->takesLength) {
             bool ok = false;
@@ -211,23 +223,30 @@ QString UploadPath::expand(QStringView pattern, const UploadInfo &info, QString 
             *error = tr("%1 takes no value: write {%2}.").arg(placeholder, name);
             return {};
         }
-        key += spec->value(info, length);
+        path += spec->value(info, length);
         i = close + 1;
     }
 
     // "a//b", or a leading or trailing slash, would make folders without a name.
     QString normalized;
-    normalized.reserve(key.size());
-    for (const QStringView folder : QStringView(key).split(u'/', Qt::SkipEmptyParts)) {
-        // HTTP clients and servers resolve these, so the request would miss the key it was signed for.
+    normalized.reserve(path.size());
+    for (const QStringView folder : QStringView(path).split(u'/', Qt::SkipEmptyParts)) {
+        // HTTP clients and servers resolve these, so a request would miss the key it was signed for; in a subfolder,
+        // .. would leave the save folder.
         if (folder == "."_L1 || folder == ".."_L1) {
             *error = tr("A folder can't be named . or ..");
+            return {};
+        }
+        if (target == Target::Subfolder && folder.toUtf8().size() > kMaxNameBytes) {
+            *error = tr("A folder name is longer than the %1 bytes file systems allow.").arg(kMaxNameBytes);
             return {};
         }
         if (!normalized.isEmpty())
             normalized += u'/';
         normalized += folder;
     }
+    if (target == Target::Subfolder)
+        return normalized;
     if (normalized.isEmpty()) {
         *error = tr("The path is empty.");
         return {};
@@ -239,9 +258,9 @@ QString UploadPath::expand(QStringView pattern, const UploadInfo &info, QString 
     return normalized;
 }
 
-UploadInfo UploadPath::example(const QString &extension)
+CaptureInfo PathPattern::example(const QString &extension)
 {
-    UploadInfo info;
+    CaptureInfo info;
     info.time = QDateTime::currentDateTime();
     info.fileName = captureName(info.time);
     info.extension = extension;
@@ -250,11 +269,13 @@ UploadInfo UploadPath::example(const QString &extension)
     return info;
 }
 
-QList<UploadPath::Group> UploadPath::groups()
+QList<PathPattern::Group> PathPattern::groups(Target target)
 {
     QList<Group> groups;
     std::optional<Category> category;
     for (const Spec &spec : kSpecs) {
+        if (!takes(target, spec.category))
+            continue;
         if (spec.category != category) {
             category = spec.category;
             groups.append({categoryTitle(spec.category), {}});

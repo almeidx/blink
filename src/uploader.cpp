@@ -1,6 +1,6 @@
 #include "uploader.h"
 
-#include "uploadpath.h"
+#include "pathpattern.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -235,8 +235,8 @@ void Uploader::uploadFile(const S3Config &config, const QString &path, const QSt
 void Uploader::test(const S3Config &config, Callback done)
 {
     QString error;
-    const QString example = UploadPath::expand(config.path, UploadPath::example(u"txt"_s), &error);
-    if (example.isEmpty()) {
+    const QString example = PathPattern::expand(config.path, PathPattern::Target::ObjectKey, PathPattern::example(u"txt"_s), &error);
+    if (!error.isEmpty()) {
         QMetaObject::invokeMethod(this, [done = std::move(done), error] { done({{}, error}); }, Qt::QueuedConnection);
         return;
     }

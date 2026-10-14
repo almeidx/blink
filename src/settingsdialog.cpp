@@ -1,13 +1,12 @@
 #include "settingsdialog.h"
 
-#include "uploadpath.h"
-
 #include <KGlobalAccel>
 
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -42,8 +41,9 @@ auto fields(const S3Config &c)
 auto fields(const Settings &s)
 {
     return std::tuple_cat(std::tie(s.startAtLogin, s.notifications, s.captureCursor, s.windowDecorations, s.windowShadow, s.magnifier,
-                                   s.saveScreenshots, s.screenshotFolder, s.recordingFolder, s.fps, s.quality, s.encoder, s.recordCursor,
-                                   s.systemAudio, s.microphone, s.uploadScreenshots, s.uploadRecordings, s.copyUrl),
+                                   s.saveScreenshots, s.screenshotFolder, s.screenshotSubfolder, s.recordingFolder, s.recordingSubfolder,
+                                   s.fps, s.quality, s.encoder, s.recordCursor, s.systemAudio, s.microphone, s.uploadScreenshots,
+                                   s.uploadRecordings, s.copyUrl),
                           fields(s.s3));
 }
 
@@ -73,6 +73,12 @@ QLabel *hintLabel(const QString &text)
     label->setWordWrap(true);
     label->setForegroundRole(QPalette::PlaceholderText);
     return label;
+}
+
+QString subfolderToolTip()
+{
+    return SettingsDialog::tr("Placeholders in braces are filled in for each capture, and / separates folders. Leave it empty to "
+                              "save straight into the folder above.");
 }
 
 template<typename T>
@@ -181,7 +187,8 @@ SettingsDialog::SettingsDialog(const Settings &settings, const QList<QAction *> 
 
     // The form trims what it reads back, so start from that rather than `settings`.
     applied_ = formSettings();
-    updatePath();
+    for (PatternField *field : {&screenshotSubfolder_, &recordingSubfolder_, &path_})
+        updatePattern(*field);
 }
 
 QWidget *SettingsDialog::createGeneralTab(const Settings &settings)
@@ -205,12 +212,12 @@ QWidget *SettingsDialog::createScreenshotsTab(const Settings &settings)
     saveScreenshots_ = checkBox(tr("Save screenshots to this folder:"), settings.saveScreenshots);
     screenshotFolder_ = lineEdit(settings.screenshotFolder);
     QWidget *folder = createFolderField(screenshotFolder_, tr("Save Screenshots To"));
+    screenshotSubfolder_ = {.target = PathPattern::Target::Subfolder, .extension = u"png"_s, .folder = screenshotFolder_};
+    const auto [subfolder, subfolderExample] = createPatternField(screenshotSubfolder_, settings.screenshotSubfolder, subfolderToolTip());
 
     // KWin only draws the shadow of a window together with its decoration.
     windowShadow_->setEnabled(settings.windowDecorations);
     connect(windowDecorations_, &QCheckBox::toggled, windowShadow_, &QWidget::setEnabled);
-    folder->setEnabled(settings.saveScreenshots);
-    connect(saveScreenshots_, &QCheckBox::toggled, folder, &QWidget::setEnabled);
 
     auto *page = new QWidget;
     auto *form = new QFormLayout(page);
@@ -220,12 +227,20 @@ QWidget *SettingsDialog::createScreenshotsTab(const Settings &settings)
     form->addRow(tr("Region selection:"), magnifier_);
     form->addRow(tr("Saving:"), saveScreenshots_);
     form->addRow(QString(), folder);
+    form->addRow(tr("Subfolder:"), subfolder);
+    form->addRow(QString(), subfolderExample);
+    for (QWidget *widget : {folder, form->labelForField(subfolder), subfolder, subfolderExample}) {
+        widget->setEnabled(settings.saveScreenshots);
+        connect(saveScreenshots_, &QCheckBox::toggled, widget, &QWidget::setEnabled);
+    }
     return page;
 }
 
 QWidget *SettingsDialog::createRecordingTab(const Settings &settings)
 {
     recordingFolder_ = lineEdit(settings.recordingFolder);
+    recordingSubfolder_ = {.target = PathPattern::Target::Subfolder, .extension = u"mp4"_s, .folder = recordingFolder_};
+    const auto [subfolder, subfolderExample] = createPatternField(recordingSubfolder_, settings.recordingSubfolder, subfolderToolTip());
 
     fps_ = new QComboBox;
     for (const int fps : {30, 60})
@@ -254,6 +269,8 @@ QWidget *SettingsDialog::createRecordingTab(const Settings &settings)
     auto *page = new QWidget;
     auto *form = new QFormLayout(page);
     form->addRow(tr("Save recordings to:"), createFolderField(recordingFolder_, tr("Save Recordings To")));
+    form->addRow(tr("Subfolder:"), subfolder);
+    form->addRow(QString(), subfolderExample);
     form->addRow(tr("Frame rate:"), fps_);
     form->addRow(tr("Quality:"), quality_);
     form->addRow(tr("Encoder:"), encoder_);
@@ -276,7 +293,10 @@ QWidget *SettingsDialog::createUploadTab(const Settings &settings)
     bucket_ = lineEdit(s3.bucket);
     accessKey_ = lineEdit(s3.accessKey);
     secretKey_ = lineEdit(s3.secretKey);
-    QWidget *path = createPathField(s3.path);
+    path_ = {.target = PathPattern::Target::ObjectKey, .extension = u"png"_s};
+    const auto [path, pathExample] = createPatternField(
+        path_, s3.path,
+        tr("Where uploads go in the bucket. Placeholders in braces are filled in for each upload, and / separates folders."));
     publicUrl_ = lineEdit(s3.publicUrl, tr("Optional, e.g. https://i.example.com/"));
     pathStyle_ = checkBox(tr("Use path-style URLs"), s3.pathStyle);
     pathStyle_->setToolTip(tr("Address objects as https://endpoint/bucket/key instead of https://bucket.endpoint/key."));
@@ -304,16 +324,9 @@ QWidget *SettingsDialog::createUploadTab(const Settings &settings)
     testResult_->setTextFormat(Qt::PlainText);
     testResult_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     testResult_->setAlignment(Qt::AlignLeft | Qt::AlignTop); // stays beside the icon when the row is taller than the text
-    pathIcon_ = new QLabel;
-    pathIcon_->hide();
-    pathExample_ = hintLabel(QString());
-    pathExample_->setTextFormat(Qt::PlainText); // shows what was typed, which may look like markup
-    auto *example = new QHBoxLayout;
-    example->addWidget(pathIcon_, 0, Qt::AlignTop);
-    example->addWidget(pathExample_, 1);
     for (const QLineEdit *edit : {endpoint_, bucket_, publicUrl_})
-        connect(edit, &QLineEdit::textChanged, this, &SettingsDialog::updateExample);
-    connect(pathStyle_, &QCheckBox::toggled, this, &SettingsDialog::updateExample);
+        connect(edit, &QLineEdit::textChanged, this, [this] { updateExample(path_); });
+    connect(pathStyle_, &QCheckBox::toggled, this, [this] { updateExample(path_); });
     auto *result = new QHBoxLayout;
     result->addWidget(testIcon_, 0, Qt::AlignTop);
     result->addWidget(testResult_, 1);
@@ -326,7 +339,7 @@ QWidget *SettingsDialog::createUploadTab(const Settings &settings)
     storageForm->addRow(tr("Access key:"), accessKey_);
     storageForm->addRow(tr("Secret key:"), secretKey_);
     storageForm->addRow(tr("Path in bucket:"), path);
-    storageForm->addRow(QString(), example);
+    storageForm->addRow(QString(), pathExample);
     storageForm->addRow(tr("Public URL:"), publicUrl_);
     storageForm->addRow(QString(), pathStyle_);
     storageForm->addRow(QString(), publicRead_);
@@ -392,23 +405,24 @@ QWidget *SettingsDialog::createFolderField(QLineEdit *edit, const QString &title
     return field;
 }
 
-QWidget *SettingsDialog::createPathField(const QString &pattern)
+std::pair<QWidget *, QWidget *> SettingsDialog::createPatternField(PatternField &field, const QString &pattern, const QString &toolTip)
 {
-    path_ = new QLineEdit(pattern);
-    path_->setToolTip(tr("Where uploads go in the bucket. Placeholders in braces are filled in for each upload, and / separates "
-                         "folders."));
-    connect(path_, &QLineEdit::textChanged, this, &SettingsDialog::updatePath);
+    field.edit = new QLineEdit(pattern);
+    field.edit->setToolTip(toolTip);
+    connect(field.edit, &QLineEdit::textChanged, this, [this, &field] { updatePattern(field); });
+    if (field.folder)
+        connect(field.folder, &QLineEdit::textChanged, this, [this, &field] { updateExample(field); });
 
     // One list in sections: every placeholder is a glance away, with no submenus to hover through.
     auto *menu = new QMenu(this);
-    for (const UploadPath::Group &group : UploadPath::groups()) {
+    for (const PathPattern::Group &group : PathPattern::groups(field.target)) {
         menu->addSection(group.title);
-        for (const UploadPath::Placeholder &placeholder : group.placeholders) {
+        for (const PathPattern::Placeholder &placeholder : group.placeholders) {
             // Text after a tab goes in the shortcut column.
             const QAction *action = menu->addAction(placeholder.description + u'\t' + placeholder.text);
-            connect(action, &QAction::triggered, this, [this, text = placeholder.text] {
-                path_->insert(text);
-                path_->setFocus();
+            connect(action, &QAction::triggered, this, [edit = field.edit, text = placeholder.text] {
+                edit->insert(text);
+                edit->setFocus();
             });
         }
     }
@@ -419,12 +433,22 @@ QWidget *SettingsDialog::createPathField(const QString &pattern)
     insert->setPopupMode(QToolButton::InstantPopup);
     insert->setMenu(menu);
 
-    auto *field = new QWidget;
-    auto *layout = new QHBoxLayout(field);
+    auto *row = new QWidget;
+    auto *layout = new QHBoxLayout(row);
     layout->setContentsMargins({});
-    layout->addWidget(path_);
+    layout->addWidget(field.edit);
     layout->addWidget(insert);
-    return field;
+
+    field.icon = new QLabel;
+    field.icon->hide();
+    field.example = hintLabel(QString());
+    field.example->setTextFormat(Qt::PlainText); // shows what was typed, which may look like markup
+    auto *exampleRow = new QWidget;
+    auto *exampleLayout = new QHBoxLayout(exampleRow);
+    exampleLayout->setContentsMargins({});
+    exampleLayout->addWidget(field.icon, 0, Qt::AlignTop);
+    exampleLayout->addWidget(field.example, 1);
+    return {row, exampleRow};
 }
 
 Settings SettingsDialog::formSettings() const
@@ -439,8 +463,10 @@ Settings SettingsDialog::formSettings() const
     s.magnifier = magnifier_->isChecked();
     s.saveScreenshots = saveScreenshots_->isChecked();
     s.screenshotFolder = screenshotFolder_->text();
+    s.screenshotSubfolder = screenshotSubfolder_.edit->text().trimmed();
 
     s.recordingFolder = recordingFolder_->text();
+    s.recordingSubfolder = recordingSubfolder_.edit->text().trimmed();
     s.fps = fps_->currentData().toInt();
     s.quality = currentValue<Quality>(quality_);
     s.encoder = currentValue<EncoderPreference>(encoder_);
@@ -457,7 +483,7 @@ Settings SettingsDialog::formSettings() const
     s.s3.bucket = bucket_->text().trimmed();
     s.s3.accessKey = accessKey_->text().trimmed();
     s.s3.secretKey = secretKey_->text().trimmed();
-    s.s3.path = path_->text().trimmed();
+    s.s3.path = path_.edit->text().trimmed();
     s.s3.publicUrl = publicUrl_->text().trimmed();
     s.s3.pathStyle = pathStyle_->isChecked();
     s.s3.publicRead = publicRead_->isChecked();
@@ -466,7 +492,7 @@ Settings SettingsDialog::formSettings() const
 
 void SettingsDialog::updateApply()
 {
-    const bool valid = pathError_.isEmpty();
+    const bool valid = screenshotSubfolder_.error.isEmpty() && recordingSubfolder_.error.isEmpty() && path_.error.isEmpty();
     ok_->setEnabled(valid);
     apply_->setEnabled(valid && !same(formSettings(), applied_));
 }
@@ -481,31 +507,39 @@ void SettingsDialog::apply()
     Q_EMIT applied(applied_);
 }
 
-void SettingsDialog::updatePath()
+void SettingsDialog::updatePattern(PatternField &field)
 {
-    pathError_.clear();
-    pathKey_ = UploadPath::expand(path_->text().trimmed(), UploadPath::example(u"png"_s), &pathError_);
-    updateExample();
+    field.error.clear();
+    field.expanded = PathPattern::expand(field.edit->text().trimmed(), field.target, PathPattern::example(field.extension), &field.error);
+    updateExample(field);
     updateApply();
 }
 
-void SettingsDialog::updateExample()
+void SettingsDialog::updateExample(PatternField &field)
 {
-    if (!pathError_.isEmpty()) {
-        pathIcon_->setPixmap(smallIcon(u"emblem-error"_s));
-        pathIcon_->show();
-        pathExample_->setForegroundRole(QPalette::WindowText);
-        pathExample_->setText(pathError_);
+    if (!field.error.isEmpty()) {
+        field.icon->setPixmap(smallIcon(u"emblem-error"_s));
+        field.icon->show();
+        field.example->setForegroundRole(QPalette::WindowText);
+        field.example->setText(field.error);
         return;
     }
-    pathIcon_->hide();
-    pathExample_->setForegroundRole(QPalette::PlaceholderText);
-    const S3Config s3 = formSettings().s3;
-    // Without an endpoint and bucket there is only the key to show.
-    QString example = (s3.endpoint.isEmpty() || s3.bucket.isEmpty()) && s3.publicUrl.isEmpty() ? pathKey_ : Uploader::link(s3, pathKey_);
-    // Zero-width spaces let a long link wrap at its slashes rather than widen the dialog.
+    field.icon->hide();
+    field.example->setForegroundRole(QPalette::PlaceholderText);
+    QString example;
+    if (field.folder) {
+        // Where a capture taken now would be saved.
+        const QString folder = field.expanded.isEmpty() ? field.folder->text() : field.folder->text() + u'/' + field.expanded;
+        example = folder + u'/' + captureName(QDateTime::currentDateTime()) + u'.' + field.extension;
+    } else {
+        const S3Config s3 = formSettings().s3;
+        // Without an endpoint and bucket there is only the key to show.
+        example = (s3.endpoint.isEmpty() || s3.bucket.isEmpty()) && s3.publicUrl.isEmpty() ? field.expanded
+                                                                                           : Uploader::link(s3, field.expanded);
+    }
+    // Zero-width spaces let a long path or link wrap at its slashes rather than widen the dialog.
     example.replace(u'/', u"/\u200B"_s);
-    pathExample_->setText(tr("Example: %1").arg(example));
+    field.example->setText(tr("Example: %1").arg(example));
 }
 
 void SettingsDialog::testUpload()

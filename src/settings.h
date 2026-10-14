@@ -11,7 +11,7 @@ struct S3Config {
     QString bucket;
     QString accessKey;
     QString secretKey;
-    QString path = QStringLiteral("{random:12}.{extension}"); // where uploads go in the bucket; placeholders: uploadpath.h
+    QString path = QStringLiteral("{random:12}.{extension}"); // where uploads go in the bucket; placeholders: pathpattern.h
     QString publicUrl;       // base of the links handed out, e.g. https://i.example.com/; empty: the bucket's own URL
     bool pathStyle = false;  // https://endpoint/bucket/key instead of https://bucket.endpoint/key
     bool publicRead = false; // sends x-amz-acl: public-read
@@ -33,9 +33,11 @@ struct Settings {
     bool magnifier = true; // region selection shows a zoomed view of the pixels around the pointer
     bool saveScreenshots = false;
     QString screenshotFolder;
+    QString screenshotSubfolder = QStringLiteral("{year}-{month}"); // inside screenshotFolder; empty for none
 
     // Recordings, always saved
     QString recordingFolder;
+    QString recordingSubfolder = QStringLiteral("{year}-{month}"); // likewise
     int fps = 60;
     Quality quality = Quality::High;
     EncoderPreference encoder = EncoderPreference::Auto;

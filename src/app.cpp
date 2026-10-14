@@ -4,12 +4,12 @@
 #include "clipboard.h"
 #include "kwinscreenshot.h"
 #include "notifier.h"
+#include "pathpattern.h"
 #include "pngencoder.h"
 #include "recording.h"
 #include "regionselector.h"
 #include "settingsdialog.h"
 #include "uploader.h"
-#include "uploadpath.h"
 #include "windowlist.h"
 
 #include <KGlobalAccel>
@@ -61,6 +61,16 @@ QString newFile(const QString &folder, const QString &name, const QString &exten
     for (int n = 2; QFileInfo::exists(path); ++n)
         path = stem + u'_' + QString::number(n) + u'.' + extension;
     return path;
+}
+
+// The folder a capture goes in: `folder`, plus the subfolder `pattern` names for the capture. Empty, with `error` set,
+// when the pattern is invalid.
+QString captureFolder(const QString &folder, const QString &pattern, const CaptureInfo &info, QString *error)
+{
+    const QString subfolder = PathPattern::expand(pattern, PathPattern::Target::Subfolder, info, error);
+    if (!error->isEmpty())
+        return {};
+    return subfolder.isEmpty() ? folder : folder + u'/' + subfolder;
 }
 
 QString writeFile(const QString &path, const QByteArray &data)
@@ -370,9 +380,18 @@ void App::deliverScreenshot(const QImage &image, const QString &app)
     qCDebug(lcBlink) << "on the clipboard after" << captureTimer_.elapsed() << "ms";
 
     const QDateTime time = QDateTime::currentDateTime();
-    const QString name = captureName(time, appName(app));
-    const QString path = settings_.saveScreenshots ? newFile(settings_.screenshotFolder, name, u"png"_s) : QString();
-    const UploadInfo info{time, path.isEmpty() ? name : QFileInfo(path).completeBaseName(), u"png"_s, image.size()};
+    CaptureInfo info{time, captureName(time, appName(app)), u"png"_s, image.size()};
+    QString path;
+    if (settings_.saveScreenshots) {
+        QString error;
+        const QString folder = captureFolder(settings_.screenshotFolder, settings_.screenshotSubfolder, info, &error);
+        if (error.isEmpty()) {
+            path = newFile(folder, info.fileName, info.extension);
+            info.fileName = QFileInfo(path).completeBaseName(); // numbered when the name was taken
+        } else {
+            notifier_->error(tr("Could not save the screenshot"), tr("The subfolder in the settings is invalid. %1").arg(error));
+        }
+    }
     // A saved file is previewed by Plasma itself; uploads report their link instead.
     const bool thumbnail = settings_.notifications && path.isEmpty() && !settings_.uploadScreenshots;
     QThreadPool::globalInstance()->start([self = QPointer(this), image, promise, path, info, thumbnail] {
@@ -394,7 +413,7 @@ void App::deliverScreenshot(const QImage &image, const QString &app)
     });
 }
 
-void App::screenshotDone(const QByteArray &png, const UploadInfo &info, const QString &path, const QString &saveError,
+void App::screenshotDone(const QByteArray &png, const CaptureInfo &info, const QString &path, const QString &saveError,
                          const QImage &thumbnail)
 {
     if (!saveError.isEmpty())
@@ -410,8 +429,15 @@ void App::screenshotDone(const QByteArray &png, const UploadInfo &info, const QS
 void App::startRecording(const QRect &region, qreal scale, const QString &app)
 {
     const QDateTime time = QDateTime::currentDateTime();
+    const CaptureInfo info{time, captureName(time, appName(app)), u"mp4"_s, {}};
+    QString error;
+    const QString folder = captureFolder(settings_.recordingFolder, settings_.recordingSubfolder, info, &error);
+    if (!error.isEmpty()) {
+        notifier_->error(tr("Recording failed"), tr("The subfolder in the settings is invalid. %1").arg(error));
+        return;
+    }
     Recording::Options options;
-    options.output = newFile(settings_.recordingFolder, captureName(time, appName(app)), u"mp4"_s);
+    options.output = newFile(folder, info.fileName, info.extension);
     options.fps = settings_.fps;
     options.quality = settings_.quality;
     options.encoder = settings_.encoder;
@@ -430,7 +456,7 @@ void App::startRecording(const QRect &region, qreal scale, const QString &app)
     });
     connect(recording, &Recording::warning, this, [this](const QString &text) { notifier_->error(u"Recording"_s, text); });
     connect(recording, &Recording::finished, this, [this, recording, time](const QString &path) {
-        const UploadInfo info{time, QFileInfo(path).completeBaseName(), u"mp4"_s, recording->videoSize()};
+        const CaptureInfo info{time, QFileInfo(path).completeBaseName(), u"mp4"_s, recording->videoSize()};
         recordingDone();
         deliverRecording(path, info);
     });
@@ -452,7 +478,7 @@ void App::recordingDone()
     updateTray();
 }
 
-void App::deliverRecording(const QString &path, const UploadInfo &info)
+void App::deliverRecording(const QString &path, const CaptureInfo &info)
 {
     clipboard::setFile(path);
     if (settings_.uploadRecordings) {
@@ -463,15 +489,15 @@ void App::deliverRecording(const QString &path, const UploadInfo &info)
         notifier_->notify(tr("Recording saved"), path, QUrl::fromLocalFile(path));
 }
 
-void App::upload(const QByteArray &data, const QString &path, const UploadInfo &info, const QString &contentType)
+void App::upload(const QByteArray &data, const QString &path, const CaptureInfo &info, const QString &contentType)
 {
     if (!settings_.s3.isComplete()) {
         notifier_->error(tr("Not uploaded"), tr("Uploads are on, but the S3 storage settings are incomplete."));
         return;
     }
     QString error;
-    const QString key = UploadPath::expand(settings_.s3.path, info, &error);
-    if (key.isEmpty()) {
+    const QString key = PathPattern::expand(settings_.s3.path, PathPattern::Target::ObjectKey, info, &error);
+    if (!error.isEmpty()) {
         notifier_->error(tr("Not uploaded"), tr("The upload path in the settings is invalid. %1").arg(error));
         return;
     }

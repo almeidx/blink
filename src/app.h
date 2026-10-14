@@ -27,7 +27,7 @@ class RegionSelector;
 class SettingsDialog;
 class Uploader;
 struct ScreenImage;
-struct UploadInfo;
+struct CaptureInfo;
 
 // The tray app. Global shortcuts and the tray menu start captures; every capture goes to the clipboard, and
 // optionally into a folder and an S3 bucket. `blink --region` and friends reach the running instance over D-Bus
@@ -59,13 +59,13 @@ private:
     void selectRegion(Purpose purpose);
     void showSelector(std::vector<ScreenImage> shots, Purpose purpose);
     void deliverScreenshot(const QImage &image, const QString &app);
-    void screenshotDone(const QByteArray &png, const UploadInfo &info, const QString &path, const QString &saveError,
+    void screenshotDone(const QByteArray &png, const CaptureInfo &info, const QString &path, const QString &saveError,
                         const QImage &thumbnail);
     void startRecording(const QRect &region, qreal scale, const QString &app);
     void recordingDone();
-    void deliverRecording(const QString &path, const UploadInfo &info);
+    void deliverRecording(const QString &path, const CaptureInfo &info);
     // From memory when `path` is empty, else from the file.
-    void upload(const QByteArray &data, const QString &path, const UploadInfo &info, const QString &contentType);
+    void upload(const QByteArray &data, const QString &path, const CaptureInfo &info, const QString &contentType);
 
     Settings settings_;
     KWinScreenshot *screenshot_;

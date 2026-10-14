@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pathpattern.h"
 #include "settings.h"
 #include "uploader.h"
 
@@ -7,6 +8,7 @@
 #include <QList>
 
 #include <memory>
+#include <utility>
 
 class QAction;
 class QCheckBox;
@@ -30,6 +32,18 @@ Q_SIGNALS:
     void applied(const blink::Settings &settings); // OK or Apply
 
 private:
+    // A line edit for a path pattern, and the line under it that shows an example or what is wrong with the pattern.
+    struct PatternField {
+        PathPattern::Target target = PathPattern::Target::ObjectKey;
+        QString extension;           // of the example capture
+        QLineEdit *folder = nullptr; // a subfolder's save folder, which its example starts with
+        QLineEdit *edit = nullptr;
+        QLabel *icon = nullptr;
+        QLabel *example = nullptr;
+        QString expanded = {}; // for the example; kept while the pattern is unchanged, so its random parts hold still
+        QString error = {};    // what is wrong with the pattern; OK and Apply are disabled while it is set
+    };
+
     QWidget *createGeneralTab(const Settings &settings);
     QWidget *createScreenshotsTab(const Settings &settings);
     QWidget *createRecordingTab(const Settings &settings);
@@ -37,15 +51,15 @@ private:
     QWidget *createShortcutsTab(const QList<QAction *> &shortcuts);
     // A line edit with a button that picks a folder.
     QWidget *createFolderField(QLineEdit *edit, const QString &title);
-    // The upload path's line edit, with a menu that inserts placeholders. Connected after it holds `pattern`: its
-    // updates read the whole form.
-    QWidget *createPathField(const QString &pattern);
+    // `field`'s line edit, holding `pattern`, with a menu that inserts the placeholders its target takes; and the row
+    // under it for the example. Connected after the edit holds `pattern`: their updates read the whole form.
+    std::pair<QWidget *, QWidget *> createPatternField(PatternField &field, const QString &pattern, const QString &toolTip);
 
     Settings formSettings() const;
     void updateApply();
     void apply();
-    void updatePath();    // expands the path into a new example, or finds what is wrong with it
-    void updateExample(); // shows the example link, which also depends on the endpoint, bucket and public URL
+    void updatePattern(PatternField &field); // expands the pattern into a new example, or finds what is wrong with it
+    void updateExample(PatternField &field); // shows the example, which also depends on other fields, or the error
     void testUpload();
     void showTestResult(const QString &iconName, const QString &text);
     QPixmap smallIcon(const QString &name) const;
@@ -61,8 +75,10 @@ private:
     QCheckBox *magnifier_ = nullptr;
     QCheckBox *saveScreenshots_ = nullptr;
     QLineEdit *screenshotFolder_ = nullptr;
+    PatternField screenshotSubfolder_;
 
     QLineEdit *recordingFolder_ = nullptr;
+    PatternField recordingSubfolder_;
     QComboBox *fps_ = nullptr;
     QComboBox *quality_ = nullptr;
     QComboBox *encoder_ = nullptr;
@@ -78,11 +94,7 @@ private:
     QLineEdit *bucket_ = nullptr;
     QLineEdit *accessKey_ = nullptr;
     QLineEdit *secretKey_ = nullptr;
-    QLineEdit *path_ = nullptr;
-    QLabel *pathIcon_ = nullptr;
-    QLabel *pathExample_ = nullptr;
-    QString pathKey_;   // the example key; kept while the path is unchanged, so its random parts hold still
-    QString pathError_; // what is wrong with the path; OK and Apply are disabled while it is set
+    PatternField path_;
     QLineEdit *publicUrl_ = nullptr;
     QCheckBox *pathStyle_ = nullptr;
     QCheckBox *publicRead_ = nullptr;

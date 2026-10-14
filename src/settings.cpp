@@ -103,10 +103,12 @@ Settings Settings::load()
     s.screenshotFolder = settings.value(u"Screenshots/folder"_s).toString();
     if (s.screenshotFolder.isEmpty())
         s.screenshotFolder = defaultFolder(QStandardPaths::PicturesLocation);
+    s.screenshotSubfolder = settings.value(u"Screenshots/subfolder"_s, s.screenshotSubfolder).toString();
 
     s.recordingFolder = settings.value(u"Recording/folder"_s).toString();
     if (s.recordingFolder.isEmpty())
         s.recordingFolder = defaultFolder(QStandardPaths::MoviesLocation);
+    s.recordingSubfolder = settings.value(u"Recording/subfolder"_s, s.recordingSubfolder).toString();
     s.fps = std::clamp(settings.value(u"Recording/fps"_s, s.fps).toInt(), 1, 240);
     s.quality = qualityFromName(settings.value(u"Recording/quality"_s).toString());
     s.encoder = encoderFromName(settings.value(u"Recording/encoder"_s).toString());
@@ -143,8 +145,10 @@ void Settings::save() const
     settings.setValue(u"Screenshots/magnifier"_s, magnifier);
     settings.setValue(u"Screenshots/save"_s, saveScreenshots);
     settings.setValue(u"Screenshots/folder"_s, screenshotFolder);
+    settings.setValue(u"Screenshots/subfolder"_s, screenshotSubfolder);
 
     settings.setValue(u"Recording/folder"_s, recordingFolder);
+    settings.setValue(u"Recording/subfolder"_s, recordingSubfolder);
     settings.setValue(u"Recording/fps"_s, fps);
     settings.setValue(u"Recording/quality"_s, qualityName(quality));
     settings.setValue(u"Recording/encoder"_s, encoderName(encoder));
