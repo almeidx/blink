@@ -95,7 +95,7 @@ constexpr std::array kSpecs{
          [](const UploadInfo &info, int) { return padded(info.time.date().day(), 2); }},
     Spec{"weekday"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Day of the week, in English"),
          [](const UploadInfo &info, int) { return QLocale::c().dayName(info.time.date().dayOfWeek()); }},
-    Spec{"week"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Week of the year, 01 to 53"),
+    Spec{"week"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Week of the year"),
          [](const UploadInfo &info, int) { return padded(weekOfYear(info.time.date()), 2); }},
     Spec{"hour"_L1, Category::Time, false, QT_TRANSLATE_NOOP("blink::UploadPath", "Hour, 00 to 23"),
          [](const UploadInfo &info, int) { return padded(info.time.time().hour(), 2); }},

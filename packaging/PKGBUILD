@@ -1,4 +1,4 @@
-# Builds the source tree this file lives in: cd packaging && makepkg -sif
+# Builds the source tree this file lives in: cd packaging && makepkg -sfi
 pkgname=blink
 # pkgver and pkgrel are updated by .github/scripts/bump-version.sh when a release is prepared.
 pkgver=0.1.1alpha.1
