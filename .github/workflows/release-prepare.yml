@@ -117,7 +117,7 @@ jobs:
           BRANCH: ${{ steps.bump.outputs.branch }}
         run: |
           git checkout -B "$BRANCH"
-          git add CMakeLists.txt packaging/PKGBUILD packaging/blink.spec CHANGELOG.md
+          git add CMakeLists.txt packaging/PKGBUILD packaging/blink-capture.spec CHANGELOG.md
           git commit -m "chore: release $TAG"
           git push --force-with-lease origin "$BRANCH"
 
@@ -144,7 +144,7 @@ jobs:
           This PR prepares the release of version $VERSION.
 
           ### Changes
-          - Updated CMakeLists.txt, packaging/PKGBUILD and packaging/blink.spec to $VERSION
+          - Updated CMakeLists.txt, packaging/PKGBUILD and packaging/blink-capture.spec to $VERSION
           - Updated CHANGELOG.md with changes since the previous tag
 
           ### After Merge

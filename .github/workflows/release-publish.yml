@@ -79,8 +79,8 @@ jobs:
           PKGVER="${VERSION/-/}"
           RPM_VERSION="${VERSION/-/\~}"
           shopt -s nullglob
-          arch=(release-assets/blink-"$PKGVER"-*-x86_64.pkg.tar.zst)
-          fedora=(release-assets/blink-"$RPM_VERSION"-*.x86_64.rpm)
+          arch=(release-assets/blink-capture-"$PKGVER"-*-x86_64.pkg.tar.zst)
+          fedora=(release-assets/blink-capture-"$RPM_VERSION"-*.x86_64.rpm)
           if [ "${#arch[@]}" -ne 1 ] || [ "${#fedora[@]}" -ne 1 ]; then
             echo "Expected one Arch package for $PKGVER and one Fedora package for $RPM_VERSION"
             exit 1

@@ -1,5 +1,5 @@
 # Builds the source tree this file lives in: cd packaging && makepkg -sfi
-pkgname=blink
+pkgname=blink-capture
 # pkgver and pkgrel are updated by .github/scripts/bump-version.sh when a release is prepared.
 pkgver=0.1.1alpha.1
 pkgrel=1
@@ -10,6 +10,8 @@ depends=('qt6-base' 'kglobalaccel' 'kguiaddons' 'layer-shell-qt' 'libpipewire' '
 makedepends=('cmake' 'ninja' 'plasma-wayland-protocols')
 optdepends=('nvidia-utils: NVENC hardware encoding on NVIDIA GPUs'
             'intel-media-driver: VA-API hardware encoding on Intel GPUs')
+# Called blink up to 0.1.1-alpha.1, a name the AUR's Blink SIP client also uses; both install /usr/bin/blink.
+conflicts=('blink')
 
 build() {
   cmake -S "$startdir/.." -B build -G Ninja \

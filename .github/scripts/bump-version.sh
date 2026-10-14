@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bumps the release version in CMakeLists.txt, packaging/PKGBUILD and packaging/blink.spec,
+# Bumps the release version in CMakeLists.txt, packaging/PKGBUILD and packaging/blink-capture.spec,
 # then prints the new version.
 #
 # Usage: bump-version.sh <patch|minor|major|prerelease> [alpha|beta|rc]
@@ -14,7 +14,7 @@ prerelease_tag="${2:-alpha}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cmake="$root/CMakeLists.txt"
 pkgbuild="$root/packaging/PKGBUILD"
-spec="$root/packaging/blink.spec"
+spec="$root/packaging/blink-capture.spec"
 
 semver='^([0-9]+)\.([0-9]+)\.([0-9]+)(-(alpha|beta|rc)\.([0-9]+))?$'
 

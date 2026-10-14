@@ -31,11 +31,11 @@ jobs:
         working-directory: packaging
         run: sudo -u builder makepkg --syncdeps --noconfirm
 
-      # The [0-9] skips the blink-debug split package.
+      # The [0-9] skips the blink-capture-debug split package.
       - name: Collect package
         run: |
           mkdir -p dist
-          cp packaging/blink-[0-9]*.pkg.tar.zst dist/
+          cp packaging/blink-capture-[0-9]*.pkg.tar.zst dist/
           cd dist
           for package in *; do sha256sum "$package" > "$package.sha256"; done
           ls -la
@@ -59,16 +59,16 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Install build dependencies
-        run: dnf -y builddep packaging/blink.spec
+        run: dnf -y builddep packaging/blink-capture.spec
 
       - name: Build package
-        run: rpmbuild -bb --build-in-place --define "_topdir $PWD/rpmbuild" packaging/blink.spec
+        run: rpmbuild -bb --build-in-place --define "_topdir $PWD/rpmbuild" packaging/blink-capture.spec
 
       # The [0-9] skips the debuginfo and debugsource packages.
       - name: Collect package
         run: |
           mkdir -p dist
-          cp rpmbuild/RPMS/*/blink-[0-9]*.rpm dist/
+          cp rpmbuild/RPMS/*/blink-capture-[0-9]*.rpm dist/
           cd dist
           for package in *; do sha256sum "$package" > "$package.sha256"; done
           ls -la

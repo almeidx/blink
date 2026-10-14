@@ -15,9 +15,11 @@ Captures come from KWin's own capture APIs.
 [Releases](https://github.com/almeidx/blink/releases) have x86_64 packages for Arch Linux and Fedora:
 
 ```sh
-sudo pacman -U blink-*-x86_64.pkg.tar.zst # Arch
-sudo dnf install ./blink-*.x86_64.rpm     # Fedora
+sudo pacman -U blink-capture-*-x86_64.pkg.tar.zst # Arch
+sudo dnf install ./blink-capture-*.x86_64.rpm     # Fedora
 ```
+
+The package was called `blink` up to 0.1.1-alpha.1. Installing `blink-capture` replaces it.
 
 For GPU encoding on Fedora, install the
 [hardware codecs from RPM Fusion](https://rpmfusion.org/Howto/Multimedia#Hardware_Accelerated_Codec).
@@ -32,9 +34,9 @@ cd packaging && makepkg -sfi
 
 ```sh
 sudo dnf install rpm-build
-sudo dnf builddep packaging/blink.spec
-rpmbuild -bb --build-in-place --define "_topdir $PWD/rpmbuild" packaging/blink.spec
-sudo dnf install ./rpmbuild/RPMS/*/blink-[0-9]*.rpm
+sudo dnf builddep packaging/blink-capture.spec
+rpmbuild -bb --build-in-place --define "_topdir $PWD/rpmbuild" packaging/blink-capture.spec
+sudo dnf install ./rpmbuild/RPMS/*/blink-capture-[0-9]*.rpm
 ```
 
 If already installed previously, first delete `rpmbuild` and use `dnf reinstall` instead.
