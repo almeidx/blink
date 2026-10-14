@@ -94,17 +94,17 @@ void WindowList::report(int request, const QString &windows)
     if (request != request_ || plugin_.isEmpty())
         return;
     const QJsonArray array = QJsonDocument::fromJson(windows.toUtf8()).array();
-    QList<QRectF> rects;
-    rects.reserve(array.size());
+    QList<Window> found;
+    found.reserve(array.size());
     for (const auto &value : array) {
-        const QJsonArray r = value.toArray();
-        if (r.size() == 4)
-            rects.append(QRectF(r[0].toDouble(), r[1].toDouble(), r[2].toDouble(), r[3].toDouble()));
+        const QJsonArray w = value.toArray();
+        if (w.size() == 5)
+            found.append({QRectF(w[0].toDouble(), w[1].toDouble(), w[2].toDouble(), w[3].toDouble()), w[4].toString()});
     }
-    finish(rects);
+    finish(found);
 }
 
-void WindowList::finish(const QList<QRectF> &windows)
+void WindowList::finish(const QList<Window> &windows)
 {
     timeout_.stop();
     if (!plugin_.isEmpty()) {

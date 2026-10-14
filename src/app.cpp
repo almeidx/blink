@@ -1,5 +1,6 @@
 #include "app.h"
 
+#include "appname.h"
 #include "clipboard.h"
 #include "kwinscreenshot.h"
 #include "notifier.h"
@@ -248,12 +249,12 @@ void App::captureWindow()
     busy_ = true;
     captureTimer_.start();
     const KWinScreenshot::Options options{settings_.captureCursor, settings_.windowDecorations, settings_.windowShadow};
-    screenshot_->captureActiveWindow(options, [this](const QImage &image, const QString &error) {
+    screenshot_->captureActiveWindow(options, [this](const QImage &image, const QString &app, const QString &error) {
         busy_ = false;
         if (!error.isEmpty())
             notifier_->error(tr("Could not capture the window"), error);
         else
-            deliverScreenshot(image);
+            deliverScreenshot(image, app);
     });
 }
 
@@ -263,12 +264,12 @@ void App::captureFullscreen()
         return;
     busy_ = true;
     captureTimer_.start();
-    screenshot_->captureWorkspace({.cursor = settings_.captureCursor}, [this](const QImage &image, const QString &error) {
+    screenshot_->captureWorkspace({.cursor = settings_.captureCursor}, [this](const QImage &image, const QString &, const QString &error) {
         busy_ = false;
         if (!error.isEmpty())
             notifier_->error(tr("Could not capture the screen"), error);
         else
-            deliverScreenshot(image);
+            deliverScreenshot(image, {});
     });
 }
 
@@ -288,12 +289,12 @@ void App::selectRegion(Purpose purpose)
     captureTimer_.start();
 
     // Runs while the screens are captured; the selection takes the windows whenever they come.
-    windowRects_.clear();
-    windowRectsKnown_ = false;
-    windows_->query([this](const QList<QRectF> &windows) {
+    knownWindows_.clear();
+    windowsKnown_ = false;
+    windows_->query([this](const QList<WindowList::Window> &windows) {
         qCDebug(lcBlink) << windows.size() << "windows after" << captureTimer_.elapsed() << "ms";
-        windowRects_ = windows;
-        windowRectsKnown_ = true;
+        knownWindows_ = windows;
+        windowsKnown_ = true;
         if (selector_)
             selector_->setWindows(windows);
     });
@@ -309,25 +310,26 @@ void App::selectRegion(Purpose purpose)
     pending->remaining = screens.size();
     for (qsizetype i = 0; i < screens.size(); ++i) {
         pending->shots[i].screen = screens[i];
-        screenshot_->captureScreen(screens[i]->name(), {}, [this, pending, i, purpose](const QImage &image, const QString &error) {
-            if (error.isEmpty())
-                pending->shots[i].image = image;
-            else
-                pending->error = error;
-            if (--pending->remaining > 0)
-                return;
-            qCDebug(lcBlink) << "screens captured after" << captureTimer_.elapsed() << "ms";
-            const QList<QScreen *> current = QGuiApplication::screens();
-            const bool screensChanged = std::ranges::any_of(pending->shots,
-                                                            [&](const ScreenImage &shot) { return !current.contains(shot.screen); });
-            if (!pending->error.isEmpty() || screensChanged) {
-                busy_ = false;
-                if (!pending->error.isEmpty())
-                    notifier_->error(tr("Could not capture the screen"), pending->error);
-                return;
-            }
-            showSelector(std::move(pending->shots), purpose);
-        });
+        screenshot_->captureScreen(screens[i]->name(), {},
+                                   [this, pending, i, purpose](const QImage &image, const QString &, const QString &error) {
+                                       if (error.isEmpty())
+                                           pending->shots[i].image = image;
+                                       else
+                                           pending->error = error;
+                                       if (--pending->remaining > 0)
+                                           return;
+                                       qCDebug(lcBlink) << "screens captured after" << captureTimer_.elapsed() << "ms";
+                                       const QList<QScreen *> current = QGuiApplication::screens();
+                                       const bool screensChanged = std::ranges::any_of(
+                                           pending->shots, [&](const ScreenImage &shot) { return !current.contains(shot.screen); });
+                                       if (!pending->error.isEmpty() || screensChanged) {
+                                           busy_ = false;
+                                           if (!pending->error.isEmpty())
+                                               notifier_->error(tr("Could not capture the screen"), pending->error);
+                                           return;
+                                       }
+                                       showSelector(std::move(pending->shots), purpose);
+                                   });
     }
 }
 
@@ -337,16 +339,16 @@ void App::showSelector(std::vector<ScreenImage> shots, Purpose purpose)
         std::move(shots), purpose == Purpose::Recording ? RegionSelector::Purpose::Recording : RegionSelector::Purpose::Screenshot,
         settings_.magnifier, this);
     selector_ = selector;
-    if (windowRectsKnown_)
-        selector->setWindows(windowRects_);
-    connect(selector, &RegionSelector::selected, this, [this, selector, purpose](const QRectF &region) {
+    if (windowsKnown_)
+        selector->setWindows(knownWindows_);
+    connect(selector, &RegionSelector::selected, this, [this, selector, purpose](const QRectF &region, const QString &app) {
         selector->deleteLater();
         busy_ = false;
         if (purpose == Purpose::Screenshot) {
             captureTimer_.start();
-            deliverScreenshot(selector->grab(region));
+            deliverScreenshot(selector->grab(region), app);
         } else {
-            startRecording(region.toAlignedRect(), selector->scale(region));
+            startRecording(region.toAlignedRect(), selector->scale(region), app);
         }
     });
     connect(selector, &RegionSelector::cancelled, this, [this, selector] {
@@ -357,7 +359,7 @@ void App::showSelector(std::vector<ScreenImage> shots, Purpose purpose)
     qCDebug(lcBlink) << "selection shown after" << captureTimer_.elapsed() << "ms";
 }
 
-void App::deliverScreenshot(const QImage &image)
+void App::deliverScreenshot(const QImage &image, const QString &app)
 {
     if (image.isNull())
         return;
@@ -368,8 +370,9 @@ void App::deliverScreenshot(const QImage &image)
     qCDebug(lcBlink) << "on the clipboard after" << captureTimer_.elapsed() << "ms";
 
     const QDateTime time = QDateTime::currentDateTime();
-    const QString path = settings_.saveScreenshots ? newFile(settings_.screenshotFolder, captureName(time), u"png"_s) : QString();
-    const UploadInfo info{time, path.isEmpty() ? captureName(time) : QFileInfo(path).completeBaseName(), u"png"_s, image.size()};
+    const QString name = captureName(time, appName(app));
+    const QString path = settings_.saveScreenshots ? newFile(settings_.screenshotFolder, name, u"png"_s) : QString();
+    const UploadInfo info{time, path.isEmpty() ? name : QFileInfo(path).completeBaseName(), u"png"_s, image.size()};
     // A saved file is previewed by Plasma itself; uploads report their link instead.
     const bool thumbnail = settings_.notifications && path.isEmpty() && !settings_.uploadScreenshots;
     QThreadPool::globalInstance()->start([self = QPointer(this), image, promise, path, info, thumbnail] {
@@ -404,11 +407,11 @@ void App::screenshotDone(const QByteArray &png, const UploadInfo &info, const QS
         notifier_->notify(tr("Screenshot copied"), path, path.isEmpty() ? QUrl() : QUrl::fromLocalFile(path), thumbnail);
 }
 
-void App::startRecording(const QRect &region, qreal scale)
+void App::startRecording(const QRect &region, qreal scale, const QString &app)
 {
     const QDateTime time = QDateTime::currentDateTime();
     Recording::Options options;
-    options.output = newFile(settings_.recordingFolder, captureName(time), u"mp4"_s);
+    options.output = newFile(settings_.recordingFolder, captureName(time, appName(app)), u"mp4"_s);
     options.fps = settings_.fps;
     options.quality = settings_.quality;
     options.encoder = settings_.encoder;

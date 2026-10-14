@@ -17,8 +17,12 @@ class WindowList final : public QObject {
     Q_CLASSINFO("D-Bus Interface", "io.github.almeidx.Blink.WindowList")
 
 public:
-    // Frame geometries in global logical coordinates, topmost first. Empty when KWin does not answer in time.
-    using Callback = std::function<void(const QList<QRectF> &windows)>;
+    struct Window {
+        QRectF frame; // global logical coordinates
+        QString app;  // as in KWinScreenshot::Callback
+    };
+    // Topmost first. Empty when KWin does not answer in time.
+    using Callback = std::function<void(const QList<Window> &windows)>;
 
     explicit WindowList(QObject *parent = nullptr);
     ~WindowList() override;
@@ -29,7 +33,7 @@ public:
     Q_SCRIPTABLE Q_INVOKABLE void report(int request, const QString &windows);
 
 private:
-    void finish(const QList<QRectF> &windows);
+    void finish(const QList<Window> &windows);
 
     QByteArray script_; // windowlist.js, prefixed per query with the request number and our bus name
     QString scriptPath_;

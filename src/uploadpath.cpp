@@ -7,6 +7,7 @@
 #include <QSysInfo>
 #include <QUuid>
 
+#include <algorithm>
 #include <array>
 #include <optional>
 
@@ -22,6 +23,8 @@ using namespace Qt::StringLiterals;
 constexpr int kMaxKeyBytes = 1024;
 // The length the menu inserts placeholders such as {random:8} with; their descriptions say 8.
 constexpr int kMenuLength = 8;
+// Of an app's name in a file name: keeps it far below the 255 bytes file systems allow.
+constexpr qsizetype kMaxAppLength = 64;
 
 // The alphabets of ShareX's %ra, %rna (its Base56: no 0, O, 1, I, l or o), %rn and %rx.
 constexpr QLatin1StringView kAlphanumeric = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"_L1;
@@ -145,9 +148,25 @@ QString categoryTitle(Category category)
 
 } // namespace
 
-QString captureName(const QDateTime &time)
+QString captureName(const QDateTime &time, QStringView app)
 {
-    return u"Blink_"_s + time.toString(u"yyyy-MM-dd_HH-mm-ss"_s);
+    app = app.first(std::min(app.size(), kMaxAppLength));
+    QString name;
+    name.reserve(app.size());
+    for (const QChar c : app) {
+        if (c.isLetterOrNumber() || c == u'_' || c == u'.')
+            name += c;
+        else if (!name.endsWith(u'-')) // one dash for each run of anything else, dashes included
+            name += u'-';
+    }
+    // No dash left over at either end, and no leading dot, which would hide the file.
+    QStringView kept(name);
+    const auto edge = [](QChar c) { return c == u'-' || c == u'.'; };
+    while (!kept.isEmpty() && edge(kept.front()))
+        kept = kept.sliced(1);
+    while (!kept.isEmpty() && edge(kept.back()))
+        kept.chop(1);
+    return (kept.isEmpty() ? u"Blink"_s : kept.toString()) + u'_' + time.toString(u"yyyy-MM-dd_HH-mm-ss"_s);
 }
 
 QString UploadPath::expand(QStringView pattern, const UploadInfo &info, QString *error)

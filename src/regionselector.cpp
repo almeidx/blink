@@ -386,7 +386,7 @@ void RegionSelector::show()
         screen.window->show();
 }
 
-void RegionSelector::setWindows(QList<QRectF> windows)
+void RegionSelector::setWindows(QList<WindowList::Window> windows)
 {
     windows_ = std::move(windows);
     refresh();
@@ -445,11 +445,20 @@ QRectF RegionSelector::selection() const
         return {};
     if (anchor_ && dragging_)
         return pixelRect(*anchor_) | pixelRect(pixelAt(*pointer_));
-    for (const QRectF &window : windows_) {
-        if (window.contains(*pointer_))
-            return clipToScreens(window);
-    }
+    if (const WindowList::Window *window = selectedWindow())
+        return clipToScreens(window->frame);
     return screens_[screenAt(*pointer_)].geometry;
+}
+
+const WindowList::Window *RegionSelector::selectedWindow() const
+{
+    if (!pointer_ || (anchor_ && dragging_))
+        return nullptr;
+    for (const WindowList::Window &window : windows_) {
+        if (window.frame.contains(*pointer_))
+            return &window;
+    }
+    return nullptr;
 }
 
 RegionSelector::Coverage RegionSelector::coverage(const QRectF &region) const
@@ -554,10 +563,11 @@ void RegionSelector::released(int screen, const QPointF &local, Qt::MouseButton 
         return;
     pointerMoved(screen, local);
     const QRectF region = selection();
+    const WindowList::Window *window = selectedWindow();
     anchor_.reset();
     dragging_ = false;
     if (!region.isEmpty())
-        finish(region);
+        finish(region, window);
 }
 
 void RegionSelector::keyPressed(int key)
@@ -566,7 +576,7 @@ void RegionSelector::keyPressed(int key)
         cancel();
     } else if ((key == Qt::Key_Return || key == Qt::Key_Enter) && !anchor_) {
         if (const QRectF region = selection(); !region.isEmpty())
-            finish(region);
+            finish(region, selectedWindow());
     }
 }
 
@@ -595,10 +605,11 @@ void RegionSelector::cancel()
         Q_EMIT cancelled();
 }
 
-void RegionSelector::finish(const QRectF &region)
+void RegionSelector::finish(const QRectF &region, const WindowList::Window *window)
 {
+    const QString app = window ? window->app : QString();
     if (close())
-        Q_EMIT selected(region);
+        Q_EMIT selected(region, app);
 }
 
 } // namespace blink

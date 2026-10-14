@@ -54,7 +54,8 @@ Blink takes these shortcuts from Spectacle on its first start. Change them in Sy
 
 The command line has the same actions: `blink --region`, `--fullscreen`, `--window`, `--record` and `--settings`.
 
-Captures are copied to the clipboard. Recordings are also saved to `~/Videos/Blink`.
+Captures are copied to the clipboard. Recordings are also saved to `~/Videos/Blink`. Captures of a window are named
+after its app, like `Firefox_2026-10-14_13-26-43.png`.
 
 Settings, including the S3 secret key, are kept in `~/.config/blink/blink.conf`, readable only by you.
 

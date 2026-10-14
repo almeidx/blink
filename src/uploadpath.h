@@ -16,8 +16,10 @@ struct UploadInfo {
     QSize size;        // in pixels; empty when unknown
 };
 
-// "Blink_2026-10-14_13-26-43": how Blink names the capture taken at `time`.
-QString captureName(const QDateTime &time);
+// "Konsole_2026-10-14_13-26-43": how Blink names a capture taken at `time` of a window of `app` (see appName()), and
+// "Blink_2026-10-14_13-26-43" when it isn't of one window. Of `app`, only letters, digits, '-', '_' and '.' stay; other
+// characters become dashes, so names work in links and on every file system: "Visual-Studio-Code_...".
+QString captureName(const QDateTime &time, QStringView app = {});
 
 // Where uploads go in the bucket: a pattern such as "{random:8}/{filename}.{extension}", expanded into an S3 object
 // key for each upload. Placeholders follow ShareX's file name codes where they apply to Blink.

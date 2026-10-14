@@ -1,6 +1,7 @@
 #pragma once
 
 #include "settings.h"
+#include "windowlist.h"
 
 #include <QElapsedTimer>
 #include <QImage>
@@ -25,7 +26,6 @@ class Recording;
 class RegionSelector;
 class SettingsDialog;
 class Uploader;
-class WindowList;
 struct ScreenImage;
 struct UploadInfo;
 
@@ -58,10 +58,10 @@ private:
 
     void selectRegion(Purpose purpose);
     void showSelector(std::vector<ScreenImage> shots, Purpose purpose);
-    void deliverScreenshot(const QImage &image);
+    void deliverScreenshot(const QImage &image, const QString &app);
     void screenshotDone(const QByteArray &png, const UploadInfo &info, const QString &path, const QString &saveError,
                         const QImage &thumbnail);
-    void startRecording(const QRect &region, qreal scale);
+    void startRecording(const QRect &region, qreal scale, const QString &app);
     void recordingDone();
     void deliverRecording(const QString &path, const UploadInfo &info);
     // From memory when `path` is empty, else from the file.
@@ -87,8 +87,8 @@ private:
     bool busy_ = false; // capturing or selecting: further capture requests are ignored
     QElapsedTimer captureTimer_;
     QPointer<RegionSelector> selector_;
-    QList<QRectF> windowRects_;
-    bool windowRectsKnown_ = false;
+    QList<WindowList::Window> knownWindows_;
+    bool windowsKnown_ = false;
     QPointer<Recording> recording_;
     QElapsedTimer recordingTimer_;
     QTimer recordingTicker_; // keeps the tray tooltip's elapsed time current

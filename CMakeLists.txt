@@ -57,6 +57,7 @@ target_link_options(blink-recorder PRIVATE -Wl,--as-needed)
 
 qt_add_executable(blink
     src/app.cpp src/app.h
+    src/appname.cpp src/appname.h
     src/clipboard.cpp src/clipboard.h
     src/kwinscreenshot.cpp src/kwinscreenshot.h
     src/main.cpp

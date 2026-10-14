@@ -9,8 +9,11 @@
 #include <QPointer>
 #include <QThreadPool>
 
+#include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstdlib>
+#include <optional>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -22,6 +25,11 @@ namespace {
 using namespace Qt::StringLiterals;
 
 constexpr int kReadTimeoutMs = 3000;
+// KWin answers at once: it has just sent the screenshot.
+constexpr int kWindowInfoTimeoutMs = 1000;
+// The window types of KWin's Window::isSpecialWindow(): Desktop, Dock, Toolbar, Splash, Tooltip, Notification,
+// OnScreenDisplay, CriticalNotification and AppletPopup. Such windows belong to Plasma or KWin, not an app.
+constexpr std::array kSpecialWindowTypes{1, 2, 3, 9, 12, 13, 16, 17, 18};
 
 // Reads exactly `size` bytes. Never waits for EOF: the D-Bus message keeps a duplicate of the write end open.
 bool readFully(int fd, uchar *data, qsizetype size, QString *error)
@@ -89,6 +97,27 @@ QImage readImage(int fd, const QVariantMap &results, QString *error)
     return image;
 }
 
+// Which app a captured window belongs to.
+QDBusPendingReply<QVariantMap> windowInfo(const QString &id)
+{
+    QDBusMessage message = QDBusMessage::createMethodCall(u"org.kde.KWin"_s, u"/KWin"_s, u"org.kde.KWin"_s, u"getWindowInfo"_s);
+    message << id;
+    return QDBusConnection::sessionBus().asyncCall(message, kWindowInfoTimeoutMs);
+}
+
+// Waits for windowInfo()'s answer: off the UI thread only.
+QString appOf(QDBusPendingReply<QVariantMap> info)
+{
+    info.waitForFinished();
+    if (!info.isValid())
+        return {};
+    const QVariantMap window = info.value();
+    if (std::ranges::contains(kSpecialWindowTypes, window.value(u"type"_s).toInt()))
+        return {};
+    const QString desktopFile = window.value(u"desktopFile"_s).toString();
+    return desktopFile.isEmpty() ? window.value(u"resourceClass"_s).toString() : desktopFile;
+}
+
 } // namespace
 
 KWinScreenshot::KWinScreenshot(QObject *parent) : QObject(parent) {}
@@ -112,7 +141,7 @@ void KWinScreenshot::call(const QString &method, QVariantList arguments, const O
 {
     int fds[2];
     if (::pipe2(fds, O_CLOEXEC) != 0) {
-        done({}, qt_error_string(errno));
+        done({}, {}, qt_error_string(errno));
         return;
     }
     // Fewer wakeups for the 33 MB of a 4K screen; fails harmlessly above /proc/sys/fs/pipe-max-size.
@@ -138,22 +167,29 @@ void KWinScreenshot::call(const QString &method, QVariantList arguments, const O
                 if (reply.isError()) {
                     ::close(fd);
                     if (reply.error().name() == "org.kde.KWin.ScreenShot2.Error.NoAuthorized"_L1)
-                        done({}, tr("KWin only lets apps take screenshots when a desktop file has Exec=%1.")
-                                     .arg(QCoreApplication::applicationFilePath()));
+                        done({}, {},
+                             tr("KWin only lets apps take screenshots when a desktop file has Exec=%1.")
+                                 .arg(QCoreApplication::applicationFilePath()));
                     else
-                        done({}, reply.error().message());
+                        done({}, {}, reply.error().message());
                     return;
                 }
-                // KWin writes the pixels from a thread after replying; read them off the UI thread.
-                QThreadPool::globalInstance()->start([self = QPointer(this), fd, results = reply.value(), done] {
+                // KWin writes the pixels from a thread after replying; read them off the UI thread. For a window, KWin
+                // says which app it belongs to meanwhile.
+                const QVariantMap results = reply.value();
+                std::optional<QDBusPendingReply<QVariantMap>> info;
+                if (const QString id = results.value(u"windowId"_s).toString(); !id.isEmpty())
+                    info = windowInfo(id);
+                QThreadPool::globalInstance()->start([self = QPointer(this), fd, results, info, done] {
                     QString error;
                     const QImage image = readImage(fd, results, &error);
                     ::close(fd);
+                    const QString app = info ? appOf(*info) : QString();
                     QMetaObject::invokeMethod(
                         qApp,
-                        [self, image, error, done] {
+                        [self, image, app, error, done] {
                             if (self)
-                                done(image, error);
+                                done(image, app, error);
                         },
                         Qt::QueuedConnection);
                 });

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "windowlist.h"
+
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -36,7 +38,7 @@ public:
 
     void show();
     // Windows to snap to, topmost first, in global logical coordinates. May arrive after show().
-    void setWindows(QList<QRectF> windows);
+    void setWindows(QList<WindowList::Window> windows);
 
     // The pixels of `region` (global logical coordinates), composed at the highest scale when it spans screens.
     QImage grab(const QRectF &region) const;
@@ -44,8 +46,9 @@ public:
     qreal scale(const QRectF &region) const;
 
 Q_SIGNALS:
-    // In global logical coordinates, on device pixel boundaries.
-    void selected(const QRectF &region);
+    // In global logical coordinates, on device pixel boundaries. `app` is the app of a window taken whole by a click
+    // (or Enter); empty for dragged areas and the desktop.
+    void selected(const QRectF &region, const QString &app);
     void cancelled();
 
 private:
@@ -74,6 +77,7 @@ private:
     Coverage coverage(const QRectF &region) const;
     QRect toDevice(int screen, const QRectF &region) const;
     QRectF selection() const; // the area that release (or click) would pick
+    const WindowList::Window *selectedWindow() const; // the window selection() takes whole, if any
     QSize selectionSize(const QRectF &region) const;
 
     QPointF pointerMoved(int screen, const QPointF &local); // returns the global position
@@ -83,11 +87,11 @@ private:
     void pointerLeft(int screen);
     bool close(); // hides the overlay; false when it already was
     void cancel();
-    void finish(const QRectF &region);
+    void finish(const QRectF &region, const WindowList::Window *window);
     void refresh();
 
     std::vector<Screen> screens_;
-    QList<QRectF> windows_;
+    QList<WindowList::Window> windows_;
     Purpose purpose_;
     bool magnifier_;
     std::optional<QPointF> pointer_; // global logical, while over one of our windows

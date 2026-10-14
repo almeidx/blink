@@ -21,8 +21,9 @@ public:
         bool shadow = false;     // window captures only
     };
     // Exactly one of `image` and `error` is set. The image is at native resolution, with the scale as its device
-    // pixel ratio.
-    using Callback = std::function<void(const QImage &image, const QString &error)>;
+    // pixel ratio. Window captures also set `app`: KWin's desktop file name for the window, else its window class;
+    // empty for the desktop, panels and the like, which are no app's.
+    using Callback = std::function<void(const QImage &image, const QString &app, const QString &error)>;
 
     explicit KWinScreenshot(QObject *parent = nullptr);
 
