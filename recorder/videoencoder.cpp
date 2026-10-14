@@ -179,7 +179,8 @@ bool VideoEncoder::open(const AVFrame *frame)
                 events_.fail(message);
                 return false;
             }
-            Events::emit(kEvEncoder, codec_->codec->name);
+            Events::emit(kEvEncoder,
+                         std::string(codec_->codec->name) + ' ' + std::to_string(codec_->width) + 'x' + std::to_string(codec_->height));
             return true;
         }
         reset();

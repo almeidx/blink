@@ -157,7 +157,11 @@ void Recording::readEvents()
         const QStringView event = space < 0 ? QStringView(line) : QStringView(line).left(space);
         const QString text = space < 0 ? QString() : line.mid(space + 1);
         if (event == latin1(recorder::kEvEncoder)) {
-            encoder_ = text;
+            // "<name> <width>x<height>"
+            const QStringList parts = text.split(u' ');
+            encoder_ = parts.value(0);
+            const QStringList size = parts.value(1).split(u'x');
+            videoSize_ = QSize(size.value(0).toInt(), size.value(1).toInt());
         } else if (event == latin1(recorder::kEvRecording)) {
             if (state_ == State::Starting) {
                 state_ = State::Recording;

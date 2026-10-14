@@ -13,6 +13,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QPixmap;
 class QPushButton;
 class QWidget;
 
@@ -36,12 +37,18 @@ private:
     QWidget *createShortcutsTab(const QList<QAction *> &shortcuts);
     // A line edit with a button that picks a folder.
     QWidget *createFolderField(QLineEdit *edit, const QString &title);
+    // The upload path's line edit, with a menu that inserts placeholders. Connected after it holds `pattern`: its
+    // updates read the whole form.
+    QWidget *createPathField(const QString &pattern);
 
     Settings formSettings() const;
     void updateApply();
     void apply();
+    void updatePath();    // expands the path into a new example, or finds what is wrong with it
+    void updateExample(); // shows the example link, which also depends on the endpoint, bucket and public URL
     void testUpload();
     void showTestResult(const QString &iconName, const QString &text);
+    QPixmap smallIcon(const QString &name) const;
 
     Settings applied_; // what the app last received; Apply is enabled while the form differs from it
 
@@ -71,7 +78,11 @@ private:
     QLineEdit *bucket_ = nullptr;
     QLineEdit *accessKey_ = nullptr;
     QLineEdit *secretKey_ = nullptr;
-    QLineEdit *prefix_ = nullptr;
+    QLineEdit *path_ = nullptr;
+    QLabel *pathIcon_ = nullptr;
+    QLabel *pathExample_ = nullptr;
+    QString pathKey_;   // the example key; kept while the path is unchanged, so its random parts hold still
+    QString pathError_; // what is wrong with the path; OK and Apply are disabled while it is set
     QLineEdit *publicUrl_ = nullptr;
     QCheckBox *pathStyle_ = nullptr;
     QCheckBox *publicRead_ = nullptr;
@@ -79,6 +90,7 @@ private:
     QLabel *testIcon_ = nullptr;
     QLabel *testResult_ = nullptr;
 
+    QPushButton *ok_ = nullptr;
     QPushButton *apply_ = nullptr;
 
     // Created on the first test. Last member: destroyed first, so a callback it runs while aborting a

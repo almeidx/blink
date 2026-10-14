@@ -23,12 +23,16 @@ public:
 
     explicit Uploader(QObject *parent = nullptr);
 
-    // Stores `data` as <prefix><name>.
-    void upload(const S3Config &config, const QByteArray &data, const QString &name, const QString &contentType, Callback done);
-    // Stores the file at `path` as <prefix><name>, streaming it from disk.
-    void uploadFile(const S3Config &config, const QString &path, const QString &name, const QString &contentType, Callback done);
-    // Stores and then deletes a small text object, to check the configuration.
+    // Stores `data` as the object `key`.
+    void upload(const S3Config &config, const QByteArray &data, const QString &key, const QString &contentType, Callback done);
+    // Stores the file at `path` as the object `key`, streaming it from disk.
+    void uploadFile(const S3Config &config, const QString &path, const QString &key, const QString &contentType, Callback done);
+    // Stores and then deletes a small text object in the folder that config.path puts uploads in, to check the
+    // configuration.
     void test(const S3Config &config, Callback done);
+
+    // The link handed out for the object `key`.
+    static QString link(const S3Config &config, const QString &key);
 
 private:
     QNetworkAccessManager *network_;

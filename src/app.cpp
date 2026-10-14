@@ -8,6 +8,7 @@
 #include "regionselector.h"
 #include "settingsdialog.h"
 #include "uploader.h"
+#include "uploadpath.h"
 #include "windowlist.h"
 
 #include <KGlobalAccel>
@@ -25,7 +26,6 @@
 #include <QLoggingCategory>
 #include <QMenu>
 #include <QPromise>
-#include <QRandomGenerator>
 #include <QSaveFile>
 #include <QScreen>
 #include <QSettings>
@@ -52,10 +52,10 @@ QIcon appIcon()
     return QIcon::fromTheme(u"blink"_s, QIcon(u":/icons/hicolor/scalable/apps/blink.svg"_s));
 }
 
-// Blink_2026-10-13_19-51-02.png, numbered when that exists.
-QString newFile(const QString &folder, const QString &extension)
+// <folder>/<name>.<extension>, numbered when that exists.
+QString newFile(const QString &folder, const QString &name, const QString &extension)
 {
-    const QString stem = folder + u"/Blink_"_s + QDateTime::currentDateTime().toString(u"yyyy-MM-dd_HH-mm-ss"_s);
+    const QString stem = folder + u'/' + name;
     QString path = stem + u'.' + extension;
     for (int n = 2; QFileInfo::exists(path); ++n)
         path = stem + u'_' + QString::number(n) + u'.' + extension;
@@ -69,16 +69,6 @@ QString writeFile(const QString &path, const QByteArray &data)
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
         return file.errorString();
     return {};
-}
-
-// Unguessable, since links to uploads are often public.
-QString randomName(const QString &extension)
-{
-    static constexpr std::string_view kAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    QString name;
-    for (int i = 0; i < 12; ++i)
-        name += QLatin1Char(kAlphabet[QRandomGenerator::system()->bounded(static_cast<quint32>(kAlphabet.size()))]);
-    return name + u'.' + extension;
 }
 
 QString elapsedText(std::chrono::milliseconds elapsed)
@@ -377,10 +367,12 @@ void App::deliverScreenshot(const QImage &image)
     clipboard::setPng(promise->future());
     qCDebug(lcBlink) << "on the clipboard after" << captureTimer_.elapsed() << "ms";
 
-    const QString path = settings_.saveScreenshots ? newFile(settings_.screenshotFolder, u"png"_s) : QString();
+    const QDateTime time = QDateTime::currentDateTime();
+    const QString path = settings_.saveScreenshots ? newFile(settings_.screenshotFolder, captureName(time), u"png"_s) : QString();
+    const UploadInfo info{time, path.isEmpty() ? captureName(time) : QFileInfo(path).completeBaseName(), u"png"_s, image.size()};
     // A saved file is previewed by Plasma itself; uploads report their link instead.
     const bool thumbnail = settings_.notifications && path.isEmpty() && !settings_.uploadScreenshots;
-    QThreadPool::globalInstance()->start([self = QPointer(this), image, promise, path, thumbnail] {
+    QThreadPool::globalInstance()->start([self = QPointer(this), image, promise, path, info, thumbnail] {
         QElapsedTimer timer;
         timer.start();
         const QByteArray png = encodePng(image);
@@ -391,20 +383,21 @@ void App::deliverScreenshot(const QImage &image)
         const QImage small = thumbnail ? image.scaled(QSize(256, 256), Qt::KeepAspectRatio, Qt::SmoothTransformation) : QImage();
         QMetaObject::invokeMethod(
             qApp,
-            [self, png, path, saveError, small] {
+            [self, png, info, path, saveError, small] {
                 if (self)
-                    self->screenshotDone(png, path, saveError, small);
+                    self->screenshotDone(png, info, path, saveError, small);
             },
             Qt::QueuedConnection);
     });
 }
 
-void App::screenshotDone(const QByteArray &png, const QString &path, const QString &saveError, const QImage &thumbnail)
+void App::screenshotDone(const QByteArray &png, const UploadInfo &info, const QString &path, const QString &saveError,
+                         const QImage &thumbnail)
 {
     if (!saveError.isEmpty())
         notifier_->error(tr("Could not save the screenshot"), saveError);
     if (settings_.uploadScreenshots) {
-        upload(png, {}, u"png"_s, u"image/png"_s);
+        upload(png, {}, info, u"image/png"_s);
         return;
     }
     if (settings_.notifications)
@@ -413,8 +406,9 @@ void App::screenshotDone(const QByteArray &png, const QString &path, const QStri
 
 void App::startRecording(const QRect &region, qreal scale)
 {
+    const QDateTime time = QDateTime::currentDateTime();
     Recording::Options options;
-    options.output = newFile(settings_.recordingFolder, u"mp4"_s);
+    options.output = newFile(settings_.recordingFolder, captureName(time), u"mp4"_s);
     options.fps = settings_.fps;
     options.quality = settings_.quality;
     options.encoder = settings_.encoder;
@@ -432,9 +426,10 @@ void App::startRecording(const QRect &region, qreal scale)
         updateTray();
     });
     connect(recording, &Recording::warning, this, [this](const QString &text) { notifier_->error(u"Recording"_s, text); });
-    connect(recording, &Recording::finished, this, [this](const QString &path) {
+    connect(recording, &Recording::finished, this, [this, recording, time](const QString &path) {
+        const UploadInfo info{time, QFileInfo(path).completeBaseName(), u"mp4"_s, recording->videoSize()};
         recordingDone();
-        deliverRecording(path);
+        deliverRecording(path, info);
     });
     connect(recording, &Recording::aborted, this, &App::recordingDone);
     connect(recording, &Recording::failed, this, [this](const QString &error) {
@@ -454,21 +449,27 @@ void App::recordingDone()
     updateTray();
 }
 
-void App::deliverRecording(const QString &path)
+void App::deliverRecording(const QString &path, const UploadInfo &info)
 {
     clipboard::setFile(path);
     if (settings_.uploadRecordings) {
-        upload({}, path, u"mp4"_s, u"video/mp4"_s);
+        upload({}, path, info, u"video/mp4"_s);
         return;
     }
     if (settings_.notifications)
         notifier_->notify(tr("Recording saved"), path, QUrl::fromLocalFile(path));
 }
 
-void App::upload(const QByteArray &data, const QString &path, const QString &extension, const QString &contentType)
+void App::upload(const QByteArray &data, const QString &path, const UploadInfo &info, const QString &contentType)
 {
     if (!settings_.s3.isComplete()) {
         notifier_->error(tr("Not uploaded"), tr("Uploads are on, but the S3 storage settings are incomplete."));
+        return;
+    }
+    QString error;
+    const QString key = UploadPath::expand(settings_.s3.path, info, &error);
+    if (key.isEmpty()) {
+        notifier_->error(tr("Not uploaded"), tr("The upload path in the settings is invalid. %1").arg(error));
         return;
     }
     if (!uploader_)
@@ -484,9 +485,9 @@ void App::upload(const QByteArray &data, const QString &path, const QString &ext
             notifier_->notify(settings_.copyUrl ? tr("Link copied") : tr("Uploaded"), result.url, QUrl(result.url));
     };
     if (path.isEmpty())
-        uploader_->upload(settings_.s3, data, randomName(extension), contentType, std::move(done));
+        uploader_->upload(settings_.s3, data, key, contentType, std::move(done));
     else
-        uploader_->uploadFile(settings_.s3, path, randomName(extension), contentType, std::move(done));
+        uploader_->uploadFile(settings_.s3, path, key, contentType, std::move(done));
 }
 
 void App::showSettings()

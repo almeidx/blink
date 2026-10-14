@@ -122,7 +122,7 @@ Settings Settings::load()
     s.s3.bucket = settings.value(u"S3/bucket"_s).toString();
     s.s3.accessKey = settings.value(u"S3/accessKey"_s).toString();
     s.s3.secretKey = settings.value(u"S3/secretKey"_s).toString();
-    s.s3.prefix = settings.value(u"S3/prefix"_s).toString();
+    s.s3.path = settings.value(u"S3/path"_s, s.s3.path).toString();
     s.s3.publicUrl = settings.value(u"S3/publicUrl"_s).toString();
     s.s3.pathStyle = settings.value(u"S3/pathStyle"_s, s.s3.pathStyle).toBool();
     s.s3.publicRead = settings.value(u"S3/publicRead"_s, s.s3.publicRead).toBool();
@@ -160,7 +160,7 @@ void Settings::save() const
     settings.setValue(u"S3/bucket"_s, s3.bucket);
     settings.setValue(u"S3/accessKey"_s, s3.accessKey);
     settings.setValue(u"S3/secretKey"_s, s3.secretKey);
-    settings.setValue(u"S3/prefix"_s, s3.prefix);
+    settings.setValue(u"S3/path"_s, s3.path);
     settings.setValue(u"S3/publicUrl"_s, s3.publicUrl);
     settings.setValue(u"S3/pathStyle"_s, s3.pathStyle);
     settings.setValue(u"S3/publicRead"_s, s3.publicRead);

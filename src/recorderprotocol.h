@@ -38,7 +38,7 @@ inline constexpr std::string_view kEncoderSoftware = "software";
 inline constexpr std::string_view kCmdStop = "stop";
 inline constexpr std::string_view kCmdAbort = "abort";
 
-inline constexpr std::string_view kEvEncoder = "encoder";     // <FFmpeg encoder name>, once the stream format is known
+inline constexpr std::string_view kEvEncoder = "encoder";     // <FFmpeg encoder name> <width>x<height>, once the stream format is known
 inline constexpr std::string_view kEvRecording = "recording"; // the first frame is in
 inline constexpr std::string_view kEvWarning = "warning";     // <text>; recording goes on
 inline constexpr std::string_view kEvError = "error";         // <text>; exits with status 1

@@ -1,20 +1,14 @@
 # Blink
 
-Screenshots and screen recordings for KDE Plasma, inspired by ShareX and focused on performance. Blink lives in the
-system tray: press a key, and the capture is on the clipboard.
+Screenshots and screen recordings for KDE Plasma, inspired by ShareX and focused on performance.
 
 - **Region**: freezes the screens, then drag to select an area or click a window (or the desktop) to take all of it.
-  A magnifier shows the pixels around the pointer; selections are exact to the device pixel, also with fractional
-  scaling.
 - **Active window** and **full screen** (all screens).
 - **Recording**: select a region or window the same way, then record it to MP4 (H.264) with system audio and the
-  microphone, until you stop it from the tray or with the shortcut again. Encoding uses NVENC on NVIDIA, VA-API on
-  AMD and Intel, and falls back to software.
-- **Upload** to S3-compatible storage (AWS S3, Cloudflare R2, MinIO, Garage, ...), with the link copied to the
-  clipboard.
+  microphone.
+- **Upload** to S3-compatible storage, with the link copied to the clipboard.
 
-Captures come from KWin's own capture APIs: KWin hands over a 4K screen in ~15 ms, and PNG encoding runs on all
-cores, ~15 ms for a 4K screenshot instead of ~200 ms with Qt's encoder.
+Captures come from KWin's own capture APIs.
 
 ## Install
 
@@ -74,6 +68,35 @@ Recordings are saved to `~/Videos/Blink`, and copied to the clipboard as a file.
 `~/Pictures/Blink`, if enabled in the settings.
 
 Settings, including the S3 secret key, are kept in `~/.config/blink/blink.conf`, readable only by you.
+
+### Upload paths
+
+**Path in bucket**, in the Upload settings, decides where uploads go: placeholders in braces are filled in for each
+upload, and `/` separates folders. The default, `{random:12}.{extension}`, gives keys like `k3J9xQ2aB7mP.png`;
+`{random:8}/{filename}.{extension}` gives `k3J9xQ2a/Blink_2026-10-14_13-26-43.png`. The button next to the field
+inserts placeholders, and the line under it shows an example link.
+
+| Placeholder | Becomes |
+| --- | --- |
+| `{filename}` | The capture's file name without extension, as it is saved: `Blink_2026-10-14_13-26-43` |
+| `{extension}` | `png` for screenshots, `mp4` for recordings |
+| `{random:N}` | N random letters and digits |
+| `{random-readable:N}` | N random letters and digits, leaving out the look-alikes `0`, `O`, `1`, `I`, `l` and `o` |
+| `{random-digits:N}` | N random digits |
+| `{random-hex:N}` | N random hexadecimal digits, lowercase |
+| `{uuid}` | A random UUID |
+| `{year}`, `{month}`, `{day}` | `2026`, `10`, `14` |
+| `{hour}`, `{minute}`, `{second}`, `{millisecond}` | `13`, `26`, `43`, `042`, on a 24-hour clock |
+| `{month-name}`, `{weekday}` | `October`, `Wednesday` |
+| `{week}` | Week of the year, `01` to `53`: week 1 runs from 1 January to the first Sunday |
+| `{unix}` | Unix time, in seconds |
+| `{width}`, `{height}` | The capture's size in pixels |
+| `{username}`, `{hostname}` | Your user name and the computer's name |
+
+Dates and times are the capture's, in local time. These are ShareX's file name codes, spelled out: `%ra{8}` is
+`{random:8}`, `%y` is `{year}`. Random parts come from the system's cryptographic random number generator, since links
+to uploads are often public. A path without one, such as `{year}/{month}/{day}.{extension}`, repeats, and each upload
+to it replaces the previous one.
 
 ## Build
 

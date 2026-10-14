@@ -11,7 +11,7 @@ struct S3Config {
     QString bucket;
     QString accessKey;
     QString secretKey;
-    QString prefix;          // prepended to object keys, e.g. "shots/"
+    QString path = QStringLiteral("{random:12}.{extension}"); // where uploads go in the bucket; placeholders: uploadpath.h
     QString publicUrl;       // base of the links handed out, e.g. https://i.example.com/; empty: the bucket's own URL
     bool pathStyle = false;  // https://endpoint/bucket/key instead of https://bucket.endpoint/key
     bool publicRead = false; // sends x-amz-acl: public-read

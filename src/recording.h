@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QRect>
+#include <QSize>
 
 #include <memory>
 #include <vector>
@@ -39,6 +40,9 @@ public:
     void stop();  // keeps the file
     void abort(); // deletes it
 
+    // The size of the video, in pixels, once it has started; empty before.
+    QSize videoSize() const { return videoSize_; }
+
 Q_SIGNALS:
     void started(const QString &encoder); // frames are going into the file
     void warning(const QString &text);    // e.g. the microphone could not be opened; recording goes on
@@ -62,6 +66,7 @@ private:
     State state_ = State::Idle;
     bool aborting_ = false;
     QString encoder_;
+    QSize videoSize_;
     QString error_;
     std::unique_ptr<Screencast> screencast_;
     QProcess process_;

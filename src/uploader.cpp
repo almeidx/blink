@@ -1,5 +1,7 @@
 #include "uploader.h"
 
+#include "uploadpath.h"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QFile>
@@ -196,16 +198,16 @@ QFuture<QByteArray> hashFile(const QString &path)
 
 Uploader::Uploader(QObject *parent) : QObject(parent), network_(new QNetworkAccessManager(this)) {}
 
-void Uploader::upload(const S3Config &config, const QByteArray &data, const QString &name, const QString &contentType, Callback done)
+void Uploader::upload(const S3Config &config, const QByteArray &data, const QString &key, const QString &contentType, Callback done)
 {
-    const Object object = locate(config, config.prefix + name);
+    const Object object = locate(config, key);
     QNetworkRequest request = signedRequest(config, object, "PUT"_ba, object.https ? kUnsignedPayload : sha256Hex(data), config.publicRead);
     request.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
     whenFinished(network_->put(request, data), this,
                  [link = object.link, done = std::move(done)](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
 }
 
-void Uploader::uploadFile(const S3Config &config, const QString &path, const QString &name, const QString &contentType, Callback done)
+void Uploader::uploadFile(const S3Config &config, const QString &path, const QString &key, const QString &contentType, Callback done)
 {
     const auto send = [this, config, path, contentType, done = std::move(done)](const Object &object, const QByteArray &payloadHash) {
         auto file = std::make_unique<QFile>(path);
@@ -222,7 +224,7 @@ void Uploader::uploadFile(const S3Config &config, const QString &path, const QSt
         whenFinished(reply, this, [link = object.link, done](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
     };
 
-    Object object = locate(config, config.prefix + name);
+    Object object = locate(config, key);
     if (object.https) {
         send(object, kUnsignedPayload);
         return;
@@ -232,8 +234,16 @@ void Uploader::uploadFile(const S3Config &config, const QString &path, const QSt
 
 void Uploader::test(const S3Config &config, Callback done)
 {
-    const QString name = u"blink-test-%1.txt"_s.arg(QRandomGenerator::global()->generate64(), 16, 16, u'0');
-    const Object object = locate(config, config.prefix + name);
+    QString error;
+    const QString example = UploadPath::expand(config.path, UploadPath::example(u"txt"_s), &error);
+    if (example.isEmpty()) {
+        QMetaObject::invokeMethod(this, [done = std::move(done), error] { done({{}, error}); }, Qt::QueuedConnection);
+        return;
+    }
+    // Where uploads go, so permissions limited to that folder are what is checked, but under a name no upload gets:
+    // a path without random parts must not have the test replace and delete a real upload.
+    const QString folder = example.first(example.lastIndexOf(u'/') + 1);
+    const Object object = locate(config, folder + u"blink-test-%1.txt"_s.arg(QRandomGenerator::global()->generate64(), 16, 16, u'0'));
     const QByteArray body = "Blink checks that it can upload here.\n"_ba;
     QNetworkRequest put = signedRequest(config, object, "PUT"_ba, object.https ? kUnsignedPayload : sha256Hex(body), config.publicRead);
     put.setHeader(QNetworkRequest::ContentTypeHeader, u"text/plain"_s);
@@ -246,6 +256,11 @@ void Uploader::test(const S3Config &config, Callback done)
         whenFinished(network_->deleteResource(remove), this,
                      [link = object.link, done](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
     });
+}
+
+QString Uploader::link(const S3Config &config, const QString &key)
+{
+    return locate(config, key).link;
 }
 
 } // namespace blink

@@ -1,5 +1,7 @@
 #include "settingsdialog.h"
 
+#include "uploadpath.h"
+
 #include <KGlobalAccel>
 
 #include <QAction>
@@ -15,6 +17,7 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QProcess>
 #include <QPushButton>
 #include <QStyle>
@@ -33,7 +36,7 @@ using namespace Qt::StringLiterals;
 
 auto fields(const S3Config &c)
 {
-    return std::tie(c.endpoint, c.region, c.bucket, c.accessKey, c.secretKey, c.prefix, c.publicUrl, c.pathStyle, c.publicRead);
+    return std::tie(c.endpoint, c.region, c.bucket, c.accessKey, c.secretKey, c.path, c.publicUrl, c.pathStyle, c.publicRead);
 }
 
 auto fields(const Settings &s)
@@ -155,6 +158,7 @@ SettingsDialog::SettingsDialog(const Settings &settings, const QList<QAction *> 
     tabs->addTab(createShortcutsTab(shortcuts), QIcon::fromTheme(u"configure-shortcuts"_s), tr("Shortcuts"));
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Apply | QDialogButtonBox::Cancel);
+    ok_ = buttons->button(QDialogButtonBox::Ok);
     apply_ = buttons->button(QDialogButtonBox::Apply);
     connect(buttons, &QDialogButtonBox::accepted, this, [this] {
         apply();
@@ -177,7 +181,7 @@ SettingsDialog::SettingsDialog(const Settings &settings, const QList<QAction *> 
 
     // The form trims what it reads back, so start from that rather than `settings`.
     applied_ = formSettings();
-    apply_->setEnabled(false);
+    updatePath();
 }
 
 QWidget *SettingsDialog::createGeneralTab(const Settings &settings)
@@ -272,7 +276,7 @@ QWidget *SettingsDialog::createUploadTab(const Settings &settings)
     bucket_ = lineEdit(s3.bucket);
     accessKey_ = lineEdit(s3.accessKey);
     secretKey_ = lineEdit(s3.secretKey);
-    prefix_ = lineEdit(s3.prefix, tr("Optional, e.g. screenshots/"));
+    QWidget *path = createPathField(s3.path);
     publicUrl_ = lineEdit(s3.publicUrl, tr("Optional, e.g. https://i.example.com/"));
     pathStyle_ = checkBox(tr("Use path-style URLs"), s3.pathStyle);
     pathStyle_->setToolTip(tr("Address objects as https://endpoint/bucket/key instead of https://bucket.endpoint/key."));
@@ -300,6 +304,16 @@ QWidget *SettingsDialog::createUploadTab(const Settings &settings)
     testResult_->setTextFormat(Qt::PlainText);
     testResult_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     testResult_->setAlignment(Qt::AlignLeft | Qt::AlignTop); // stays beside the icon when the row is taller than the text
+    pathIcon_ = new QLabel;
+    pathIcon_->hide();
+    pathExample_ = hintLabel(QString());
+    pathExample_->setTextFormat(Qt::PlainText); // shows what was typed, which may look like markup
+    auto *example = new QHBoxLayout;
+    example->addWidget(pathIcon_, 0, Qt::AlignTop);
+    example->addWidget(pathExample_, 1);
+    for (const QLineEdit *edit : {endpoint_, bucket_, publicUrl_})
+        connect(edit, &QLineEdit::textChanged, this, &SettingsDialog::updateExample);
+    connect(pathStyle_, &QCheckBox::toggled, this, &SettingsDialog::updateExample);
     auto *result = new QHBoxLayout;
     result->addWidget(testIcon_, 0, Qt::AlignTop);
     result->addWidget(testResult_, 1);
@@ -311,7 +325,8 @@ QWidget *SettingsDialog::createUploadTab(const Settings &settings)
     storageForm->addRow(tr("Bucket:"), bucket_);
     storageForm->addRow(tr("Access key:"), accessKey_);
     storageForm->addRow(tr("Secret key:"), secretKey_);
-    storageForm->addRow(tr("Key prefix:"), prefix_);
+    storageForm->addRow(tr("Path in bucket:"), path);
+    storageForm->addRow(QString(), example);
     storageForm->addRow(tr("Public URL:"), publicUrl_);
     storageForm->addRow(QString(), pathStyle_);
     storageForm->addRow(QString(), publicRead_);
@@ -377,6 +392,41 @@ QWidget *SettingsDialog::createFolderField(QLineEdit *edit, const QString &title
     return field;
 }
 
+QWidget *SettingsDialog::createPathField(const QString &pattern)
+{
+    path_ = new QLineEdit(pattern);
+    path_->setToolTip(tr("Where uploads go in the bucket. Placeholders in braces are filled in for each upload, and / separates "
+                         "folders."));
+    connect(path_, &QLineEdit::textChanged, this, &SettingsDialog::updatePath);
+
+    // One list in sections: every placeholder is a glance away, with no submenus to hover through.
+    auto *menu = new QMenu(this);
+    for (const UploadPath::Group &group : UploadPath::groups()) {
+        menu->addSection(group.title);
+        for (const UploadPath::Placeholder &placeholder : group.placeholders) {
+            // Text after a tab goes in the shortcut column.
+            const QAction *action = menu->addAction(placeholder.description + u'\t' + placeholder.text);
+            connect(action, &QAction::triggered, this, [this, text = placeholder.text] {
+                path_->insert(text);
+                path_->setFocus();
+            });
+        }
+    }
+    auto *insert = new QToolButton;
+    insert->setIcon(QIcon::fromTheme(u"insert-text"_s));
+    insert->setText(tr("Insert")); // shown without an icon theme, and read by screen readers
+    insert->setToolTip(tr("Insert a placeholder"));
+    insert->setPopupMode(QToolButton::InstantPopup);
+    insert->setMenu(menu);
+
+    auto *field = new QWidget;
+    auto *layout = new QHBoxLayout(field);
+    layout->setContentsMargins({});
+    layout->addWidget(path_);
+    layout->addWidget(insert);
+    return field;
+}
+
 Settings SettingsDialog::formSettings() const
 {
     Settings s;
@@ -407,7 +457,7 @@ Settings SettingsDialog::formSettings() const
     s.s3.bucket = bucket_->text().trimmed();
     s.s3.accessKey = accessKey_->text().trimmed();
     s.s3.secretKey = secretKey_->text().trimmed();
-    s.s3.prefix = prefix_->text().trimmed();
+    s.s3.path = path_->text().trimmed();
     s.s3.publicUrl = publicUrl_->text().trimmed();
     s.s3.pathStyle = pathStyle_->isChecked();
     s.s3.publicRead = publicRead_->isChecked();
@@ -416,7 +466,9 @@ Settings SettingsDialog::formSettings() const
 
 void SettingsDialog::updateApply()
 {
-    apply_->setEnabled(!same(formSettings(), applied_));
+    const bool valid = pathError_.isEmpty();
+    ok_->setEnabled(valid);
+    apply_->setEnabled(valid && !same(formSettings(), applied_));
 }
 
 void SettingsDialog::apply()
@@ -427,6 +479,33 @@ void SettingsDialog::apply()
     applied_ = std::move(settings);
     apply_->setEnabled(false);
     Q_EMIT applied(applied_);
+}
+
+void SettingsDialog::updatePath()
+{
+    pathError_.clear();
+    pathKey_ = UploadPath::expand(path_->text().trimmed(), UploadPath::example(u"png"_s), &pathError_);
+    updateExample();
+    updateApply();
+}
+
+void SettingsDialog::updateExample()
+{
+    if (!pathError_.isEmpty()) {
+        pathIcon_->setPixmap(smallIcon(u"emblem-error"_s));
+        pathIcon_->show();
+        pathExample_->setForegroundRole(QPalette::WindowText);
+        pathExample_->setText(pathError_);
+        return;
+    }
+    pathIcon_->hide();
+    pathExample_->setForegroundRole(QPalette::PlaceholderText);
+    const S3Config s3 = formSettings().s3;
+    // Without an endpoint and bucket there is only the key to show.
+    QString example = (s3.endpoint.isEmpty() || s3.bucket.isEmpty()) && s3.publicUrl.isEmpty() ? pathKey_ : Uploader::link(s3, pathKey_);
+    // Zero-width spaces let a long link wrap at its slashes rather than widen the dialog.
+    example.replace(u'/', u"/\u200B"_s);
+    pathExample_->setText(tr("Example: %1").arg(example));
 }
 
 void SettingsDialog::testUpload()
@@ -443,7 +522,7 @@ void SettingsDialog::testUpload()
     uploader_->test(config, [this](const Uploader::Result &result) {
         test_->setEnabled(true);
         if (result.error.isEmpty())
-            showTestResult(u"emblem-success"_s, tr("Uploaded and deleted a test file. Links look like %1").arg(result.url));
+            showTestResult(u"emblem-success"_s, tr("Uploaded and deleted a test file."));
         else
             showTestResult(u"emblem-error"_s, result.error);
     });
@@ -454,8 +533,7 @@ void SettingsDialog::showTestResult(const QString &iconName, const QString &text
     if (iconName.isEmpty()) {
         testIcon_->hide();
     } else {
-        const int size = style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, this);
-        testIcon_->setPixmap(QIcon::fromTheme(iconName).pixmap(QSize(size, size), devicePixelRatio()));
+        testIcon_->setPixmap(smallIcon(iconName));
         testIcon_->show();
     }
     testResult_->setText(text);
@@ -464,6 +542,12 @@ void SettingsDialog::showTestResult(const QString &iconName, const QString &text
     QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
     if (const int needed = heightForWidth(width()); needed > height())
         resize(width(), needed);
+}
+
+QPixmap SettingsDialog::smallIcon(const QString &name) const
+{
+    const int size = style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, this);
+    return QIcon::fromTheme(name).pixmap(QSize(size, size), devicePixelRatio());
 }
 
 } // namespace blink
