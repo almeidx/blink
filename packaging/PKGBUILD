@@ -1,7 +1,7 @@
 # Builds the source tree this file lives in: cd packaging && makepkg -sfi
 pkgname=blink-capture
 # pkgver and pkgrel are updated by .github/scripts/bump-version.sh when a release is prepared.
-pkgver=0.1.1alpha.1
+pkgver=0.1.1alpha.2
 pkgrel=1
 pkgdesc='Fast screenshots and screen recordings for KDE Plasma'
 arch=('x86_64' 'aarch64')
