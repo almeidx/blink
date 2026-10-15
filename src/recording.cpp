@@ -28,14 +28,6 @@ QLatin1StringView latin1(std::string_view text)
     return {text.data(), static_cast<qsizetype>(text.size())};
 }
 
-// A build tree runs the recorder built next to it.
-QString recorderPath()
-{
-    if (QString local = QCoreApplication::applicationDirPath() + u"/blink-recorder"_s; QFileInfo(local).isExecutable())
-        return local;
-    return QStringLiteral(BLINK_RECORDER_PATH);
-}
-
 std::string_view qualityArgument(Quality quality)
 {
     switch (quality) {
@@ -92,6 +84,13 @@ protected:
 };
 
 } // namespace
+
+QString recorderPath()
+{
+    if (QString local = QCoreApplication::applicationDirPath() + u"/blink-recorder"_s; QFileInfo(local).isExecutable())
+        return local;
+    return QStringLiteral(BLINK_RECORDER_PATH);
+}
 
 Recording::Recording(const QRect &region, qreal scale, Options options, QObject *parent)
     : QObject(parent), region_(region), scale_(scale), options_(std::move(options))

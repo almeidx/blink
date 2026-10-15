@@ -16,6 +16,9 @@ namespace blink {
 
 class Screencast;
 
+// blink-recorder: the one built next to blink when it runs from a build tree, else the installed one.
+QString recorderPath();
+
 // One screen recording: KWin streams the region over PipeWire and blink-recorder encodes it into a file. While
 // it runs, a frame drawn just outside the region (so it is not recorded) shows what is being recorded.
 class Recording final : public QObject {

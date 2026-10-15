@@ -11,6 +11,9 @@
 //
 // stdin, one command per line: "stop" finishes the file, "abort" deletes it. EOF, SIGINT and SIGTERM count as "stop".
 // stdout, one event per line: "<event>" or "<event> <text>".
+//
+// blink-recorder --thumbnail <size> <video> instead writes the video's first frame to stdout as a binary PPM image
+// that fits in size×size pixels, for the library; see recorder/thumbnail.h.
 
 #include <string_view>
 
@@ -24,6 +27,7 @@ inline constexpr std::string_view kOptQuality = "--quality";
 inline constexpr std::string_view kOptEncoder = "--encoder";
 inline constexpr std::string_view kOptSystemAudio = "--system-audio";
 inline constexpr std::string_view kOptMicrophone = "--microphone";
+inline constexpr std::string_view kOptThumbnail = "--thumbnail";
 
 inline constexpr std::string_view kQualityLow = "low";
 inline constexpr std::string_view kQualityMedium = "medium";

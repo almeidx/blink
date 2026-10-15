@@ -54,10 +54,14 @@ Start Blink from the application menu. It stays in the system tray and starts wi
 
 Blink takes these shortcuts from Spectacle on its first start. Change them in System Settings > Keyboard > Shortcuts.
 
-The command line has the same actions: `blink --region`, `--fullscreen`, `--window`, `--record` and `--settings`.
+The command line has the same actions: `blink --region`, `--fullscreen`, `--window`, `--record`, `--library` and
+`--settings`.
 
-Captures are copied to the clipboard. Recordings are also saved to `~/Videos/Blink`, in a folder for each month.
+Captures are copied to the clipboard and saved to `~/Pictures/Blink` and `~/Videos/Blink`, in a folder for each month.
 Captures of a window are named after its app, like `Firefox_2026-10-14_13-26-43.png`.
+
+**Library**, in the tray menu, shows the saved screenshots and recordings. Open, copy, drag or move them to the trash
+from there, or upload them when S3 storage is set up.
 
 Settings, including the S3 secret key, are kept in `~/.config/blink/blink.conf`, readable only by you.
 

@@ -37,12 +37,18 @@ void setPng(const QFuture<QByteArray> &png)
     KSystemClipboard::instance()->setMimeData(new PngMimeData(png), QClipboard::Clipboard);
 }
 
-void setFile(const QString &path)
+void setFiles(const QStringList &paths)
 {
-    const QUrl url = QUrl::fromLocalFile(path);
+    QList<QUrl> urls;
+    urls.reserve(paths.size());
+    QByteArray copied = "copy";
+    for (const QString &path : paths) {
+        urls.append(QUrl::fromLocalFile(path));
+        copied += '\n' + urls.last().toEncoded();
+    }
     auto *mime = new QMimeData;
-    mime->setUrls({url});
-    mime->setData(u"x-special/gnome-copied-files"_s, "copy\n" + url.toEncoded());
+    mime->setUrls(urls);
+    mime->setData(u"x-special/gnome-copied-files"_s, copied);
     KSystemClipboard::instance()->setMimeData(mime, QClipboard::Clipboard);
 }
 

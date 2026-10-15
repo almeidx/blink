@@ -31,7 +31,7 @@ struct Settings {
     bool windowDecorations = true; // active window captures include the title bar and borders
     bool windowShadow = false;
     bool magnifier = true; // region selection shows a zoomed view of the pixels around the pointer
-    bool saveScreenshots = false;
+    bool saveScreenshots = true;
     QString screenshotFolder;
     QString screenshotSubfolder = QStringLiteral("{year}-{month}"); // inside screenshotFolder; empty for none
 

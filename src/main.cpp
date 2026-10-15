@@ -37,13 +37,14 @@ int main(int argc, char *argv[])
         QCommandLineOption option;
         QLatin1StringView method;
     };
-    const std::array<Command, 5> commands{{
+    const std::array<Command, 6> commands{{
         {QCommandLineOption(u"region"_s, QCoreApplication::translate("main", "Select a region to capture.")), "captureRegion"_L1},
         {QCommandLineOption(u"window"_s, QCoreApplication::translate("main", "Capture the active window.")), "captureWindow"_L1},
         {QCommandLineOption(u"fullscreen"_s, QCoreApplication::translate("main", "Capture all screens.")), "captureFullscreen"_L1},
         {QCommandLineOption(u"record"_s, QCoreApplication::translate("main", "Select a region to record, or stop recording.")),
          "toggleRecording"_L1},
         {QCommandLineOption(u"settings"_s, QCoreApplication::translate("main", "Open the settings.")), "showSettings"_L1},
+        {QCommandLineOption(u"library"_s, QCoreApplication::translate("main", "Open the library of saved captures.")), "showLibrary"_L1},
     }};
     for (const Command &command : commands)
         parser.addOption(command.option);

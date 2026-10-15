@@ -8,6 +8,7 @@
 #include "mixer.h"
 #include "muxer.h"
 #include "recorderprotocol.h"
+#include "thumbnail.h"
 #include "videoencoder.h"
 
 extern "C" {
@@ -260,11 +261,15 @@ int main(int argc, char **argv)
 {
     using namespace blink::recorder;
 
+    av_log_set_level(AV_LOG_ERROR);
+    // Before stdout is made line buffered: the thumbnail is binary.
+    if (argc > 1 && std::string_view(argv[1]) == kOptThumbnail)
+        return thumbnail(argc, argv);
+
     // The tray app owns the recording: if it dies, finish the file.
     prctl(PR_SET_PDEATHSIG, SIGTERM);
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     signal(SIGPIPE, SIG_IGN);
-    av_log_set_level(AV_LOG_ERROR);
 
     std::string error;
     const std::optional<Arguments> arguments = parse(argc, argv, error);

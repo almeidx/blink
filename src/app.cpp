@@ -3,6 +3,7 @@
 #include "appname.h"
 #include "clipboard.h"
 #include "kwinscreenshot.h"
+#include "librarywindow.h"
 #include "notifier.h"
 #include "pathpattern.h"
 #include "pngencoder.h"
@@ -24,8 +25,10 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QImageReader>
 #include <QLoggingCategory>
 #include <QMenu>
+#include <QMimeDatabase>
 #include <QPromise>
 #include <QSaveFile>
 #include <QScreen>
@@ -215,6 +218,7 @@ void App::createTray()
     menu_->addAction(recordMenuAction_);
     menu_->addAction(abortAction_);
     menu_->addSeparator();
+    menu_->addAction(QIcon::fromTheme(u"folder-pictures"_s), tr("Library"), this, &App::showLibrary);
     menu_->addAction(QIcon::fromTheme(u"configure"_s), u"Settings…"_s, this, &App::showSettings);
     menu_->addAction(QIcon::fromTheme(u"application-exit"_s), u"Quit"_s, qApp, &QCoreApplication::quit);
 
@@ -418,6 +422,8 @@ void App::screenshotDone(const QByteArray &png, const CaptureInfo &info, const Q
 {
     if (!saveError.isEmpty())
         notifier_->error(tr("Could not save the screenshot"), saveError);
+    else if (library_ && !path.isEmpty())
+        library_->rescan();
     if (settings_.uploadScreenshots) {
         upload(png, {}, info, u"image/png"_s);
         return;
@@ -476,11 +482,14 @@ void App::recordingDone()
     recording_ = nullptr;
     recordingTicker_.stop();
     updateTray();
+    // The file is complete now, or gone.
+    if (library_)
+        library_->rescan();
 }
 
 void App::deliverRecording(const QString &path, const CaptureInfo &info)
 {
-    clipboard::setFile(path);
+    clipboard::setFiles({path});
     if (settings_.uploadRecordings) {
         upload({}, path, info, u"video/mp4"_s);
         return;
@@ -519,6 +528,19 @@ void App::upload(const QByteArray &data, const QString &path, const CaptureInfo 
         uploader_->uploadFile(settings_.s3, path, key, contentType, std::move(done));
 }
 
+void App::uploadFile(const QString &path)
+{
+    const QFileInfo file(path);
+    const QString type = QMimeDatabase().mimeTypeForFile(file).name();
+    CaptureInfo info;
+    info.time = file.birthTime().isValid() ? file.birthTime() : file.lastModified();
+    info.fileName = file.completeBaseName();
+    info.extension = file.suffix();
+    if (type.startsWith("image/"_L1))
+        info.size = QImageReader(path).size(); // from the header; videos leave {width} and {height} empty
+    upload({}, path, info, type);
+}
+
 void App::showSettings()
 {
     if (dialog_) {
@@ -532,11 +554,26 @@ void App::showSettings()
     dialog->show();
 }
 
+void App::showLibrary()
+{
+    if (library_) {
+        library_->raise();
+        library_->activateWindow();
+        return;
+    }
+    auto *library = new LibraryWindow(settings_);
+    library_ = library;
+    connect(library, &LibraryWindow::uploadRequested, this, &App::uploadFile);
+    library->show();
+}
+
 void App::applySettings(const Settings &settings)
 {
     settings_ = settings;
     settings_.save();
     applyAutostart();
+    if (library_)
+        library_->setSettings(settings_);
 }
 
 void App::applyAutostart() const

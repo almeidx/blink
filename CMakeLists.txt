@@ -48,6 +48,7 @@ add_executable(blink-recorder
     recorder/main.cpp
     recorder/mixer.cpp recorder/mixer.h
     recorder/muxer.cpp recorder/muxer.h
+    recorder/thumbnail.cpp recorder/thumbnail.h
     recorder/videoencoder.cpp recorder/videoencoder.h
     src/recorderprotocol.h
 )
@@ -60,6 +61,8 @@ qt_add_executable(blink
     src/appname.cpp src/appname.h
     src/clipboard.cpp src/clipboard.h
     src/kwinscreenshot.cpp src/kwinscreenshot.h
+    src/librarymodel.cpp src/librarymodel.h
+    src/librarywindow.cpp src/librarywindow.h
     src/main.cpp
     src/notifier.cpp src/notifier.h
     src/pathpattern.cpp src/pathpattern.h
@@ -70,6 +73,7 @@ qt_add_executable(blink
     src/screencast.cpp src/screencast.h
     src/settings.cpp src/settings.h
     src/settingsdialog.cpp src/settingsdialog.h
+    src/thumbnailer.cpp src/thumbnailer.h
     src/uploader.cpp src/uploader.h
     src/windowlist.cpp src/windowlist.h
 )

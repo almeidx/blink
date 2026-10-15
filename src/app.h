@@ -22,6 +22,7 @@ namespace blink {
 
 class KWinScreenshot;
 class Notifier;
+class LibraryWindow;
 class Recording;
 class RegionSelector;
 class SettingsDialog;
@@ -45,6 +46,7 @@ public:
     Q_SCRIPTABLE Q_INVOKABLE void captureFullscreen();
     Q_SCRIPTABLE Q_INVOKABLE void toggleRecording();
     Q_SCRIPTABLE Q_INVOKABLE void showSettings();
+    Q_SCRIPTABLE Q_INVOKABLE void showLibrary();
 
 private:
     enum class Purpose { Screenshot, Recording };
@@ -66,6 +68,7 @@ private:
     void deliverRecording(const QString &path, const CaptureInfo &info);
     // From memory when `path` is empty, else from the file.
     void upload(const QByteArray &data, const QString &path, const CaptureInfo &info, const QString &contentType);
+    void uploadFile(const QString &path); // a file in the library
 
     Settings settings_;
     KWinScreenshot *screenshot_;
@@ -93,6 +96,7 @@ private:
     QElapsedTimer recordingTimer_;
     QTimer recordingTicker_; // keeps the tray tooltip's elapsed time current
     QPointer<SettingsDialog> dialog_;
+    QPointer<LibraryWindow> library_;
 };
 
 } // namespace blink

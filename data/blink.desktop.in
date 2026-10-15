@@ -13,7 +13,7 @@ Keywords=screenshot;screen;capture;snip;region;window;record;recording;video;cli
 # against the executable's path, so Exec must be absolute: a bare command name is never found.
 X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
 X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1
-Actions=CaptureRegion;CaptureWindow;CaptureFullscreen;Record;
+Actions=CaptureRegion;CaptureWindow;CaptureFullscreen;Record;Library;
 
 [Desktop Action CaptureRegion]
 Name=Capture Region
@@ -30,3 +30,7 @@ Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --fullscreen
 [Desktop Action Record]
 Name=Start or Stop Recording
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --record
+
+[Desktop Action Library]
+Name=Open Library
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/blink --library

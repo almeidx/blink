@@ -10,8 +10,8 @@ namespace blink::clipboard {
 
 // Offers a PNG that may still be encoding; a paste that arrives first waits for it.
 void setPng(const QFuture<QByteArray> &png);
-// Offers a file the way file managers copy one, so it pastes as an attachment.
-void setFile(const QString &path);
+// Offers files the way file managers copy them, so they paste as attachments.
+void setFiles(const QStringList &paths);
 void setText(const QString &text);
 
 } // namespace blink::clipboard
