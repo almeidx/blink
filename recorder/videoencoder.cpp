@@ -222,7 +222,9 @@ std::string VideoEncoder::tryOpen(Kind kind, const AVFrame *frame)
     case Kind::OpenH264: {
         const double bitsPerPixel = pick(options_.quality, 6, 10, 15) / 100.0;
         av_dict_set(&options, "rc_mode", "bitrate", 0);
-        av_dict_set_int(&options, "b", static_cast<int64_t>(frame->width * frame->height * fps * bitsPerPixel), 0);
+        // In double: width * height * fps overflows int at 4K from 259 fps (and at 8K from 65).
+        const double bitRate = static_cast<double>(frame->width) * frame->height * fps * bitsPerPixel;
+        av_dict_set_int(&options, "b", static_cast<int64_t>(bitRate), 0);
         if (std::string error = openCodec("libopenh264", frame, AV_PIX_FMT_YUV420P, &options); !error.empty())
             return error;
         return openSoftware("libopenh264", frame);
