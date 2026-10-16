@@ -6,7 +6,7 @@ pkgrel=1
 pkgdesc='Fast screenshots and screen recordings for KDE Plasma'
 arch=('x86_64' 'aarch64')
 license=('Apache-2.0')
-depends=('qt6-base' 'kglobalaccel' 'kguiaddons' 'layer-shell-qt' 'libpipewire' 'ffmpeg' 'zlib' 'hicolor-icon-theme')
+depends=('qt6-base' 'kglobalaccel' 'kguiaddons' 'layer-shell-qt>=6.6' 'libpipewire>=1.0' 'ffmpeg' 'zlib' 'hicolor-icon-theme')
 makedepends=('cmake' 'ninja' 'plasma-wayland-protocols')
 optdepends=('nvidia-utils: NVENC hardware encoding on NVIDIA GPUs'
             'intel-media-driver: VA-API hardware encoding on Intel GPUs')

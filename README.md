@@ -97,8 +97,8 @@ Without a random part, a path can repeat, and the new upload replaces the old on
 
 ## Build
 
-Requires Qt 6.8+, KDE Frameworks 6 (KGlobalAccel, KGuiAddons), LayerShellQt, plasma-wayland-protocols, PipeWire,
-FFmpeg 7.1+, zlib, CMake, Ninja and a C++23 compiler.
+Requires Qt 6.10+, KDE Frameworks 6 (KGlobalAccel, KGuiAddons), LayerShellQt 6.6+, plasma-wayland-protocols,
+PipeWire 1.0+ (WirePlumber 0.5+), FFmpeg 7.1+, zlib, CMake, Ninja and a C++23 compiler.
 
 ```sh
 cmake -S . -B build -G Ninja

@@ -19,17 +19,21 @@ include(GNUInstallDirs)
 include(CheckIPOSupported)
 check_ipo_supported(RESULT BLINK_IPO LANGUAGES CXX)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets DBus Network WaylandClient)
+# LayerShellQt 6.6 itself needs Qt 6.10 (its QT_MIN_VERSION); the floor cannot be lower than that.
+find_package(Qt6 6.10 REQUIRED COMPONENTS Widgets DBus Network WaylandClient)
 find_package(KF6GlobalAccel 6.0 REQUIRED)
 find_package(KF6GuiAddons 6.0 REQUIRED)
-find_package(LayerShellQt 6.0 REQUIRED)
+# 6.6 added Window::setScreen, which recording.cpp and regionselector.cpp use to pin layer surfaces to a screen.
+find_package(LayerShellQt 6.6 REQUIRED)
 # 1.21 added the PipeWire object serial to zkde_screencast_stream_unstable_v1.
 find_package(PlasmaWaylandProtocols 1.21 REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Wayland REQUIRED IMPORTED_TARGET wayland-client)
-pkg_check_modules(PipeWire REQUIRED IMPORTED_TARGET libpipewire-0.3)
+# 1.0: capture.cpp targets the screencast stream with PW_KEY_TARGET_OBJECT (0.3.44) and relies on node.dont-fallback,
+# which WirePlumber honours from 0.5 (PipeWire 1.0.2+).
+pkg_check_modules(PipeWire REQUIRED IMPORTED_TARGET libpipewire-0.3>=1.0)
 # FFmpeg 7.1 or newer: avcodec_get_supported_config replaced AVCodec::pix_fmts.
 pkg_check_modules(FFmpeg REQUIRED IMPORTED_TARGET libavcodec>=61.19 libavformat libavfilter libavutil libswresample libswscale)
 qt_standard_project_setup()
