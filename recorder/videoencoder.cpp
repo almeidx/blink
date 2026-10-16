@@ -174,6 +174,9 @@ bool VideoEncoder::open(const AVFrame *frame)
     for (const Kind kind : kinds) {
         const std::string error = tryOpen(kind, frame);
         if (error.empty()) {
+            // Created eagerly in run() for NVENC; another encoder won, so give the GPU memory back.
+            if (kind != Kind::Nvenc)
+                cuda_.reset();
             if (std::string message = muxer_.setParameters(muxer_.videoStream(), codec_.get()); !message.empty()) {
                 events_.fail(message);
                 return false;
