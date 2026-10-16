@@ -37,8 +37,18 @@ case "$prerelease_tag" in
     ;;
 esac
 
+# Prerelease tags in the order semver, pacman and RPM sort them.
+tag_order() {
+  case "$1" in
+    alpha) echo 1 ;;
+    beta) echo 2 ;;
+    rc) echo 3 ;;
+  esac
+}
+
 # Like npm version, a major/minor/patch bump of a prerelease releases it when that satisfies the
 # bump: 0.1.1-rc.2 becomes 0.1.1 on patch, and 0.2.0-rc.1 becomes 0.2.0 on patch or minor.
+# A lower tag than the current one (rc -> alpha) is refused: every package manager would sort it as a downgrade.
 case "$bump" in
   major)
     if [ -n "$current_tag" ] && [ "$minor" -eq 0 ] && [ "$patch" -eq 0 ]; then
@@ -66,6 +76,9 @@ case "$bump" in
       version="$major.$minor.$((patch + 1))-$prerelease_tag.1"
     elif [ "$current_tag" = "$prerelease_tag" ]; then
       version="$major.$minor.$patch-$prerelease_tag.$((current_number + 1))"
+    elif [ "$(tag_order "$prerelease_tag")" -lt "$(tag_order "$current_tag")" ]; then
+      echo "prerelease tag $prerelease_tag is lower than current $current_tag" >&2
+      exit 1
     else
       version="$major.$minor.$patch-$prerelease_tag.1"
     fi
