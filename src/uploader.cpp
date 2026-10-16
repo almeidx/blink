@@ -143,16 +143,30 @@ QNetworkRequest signedRequest(const S3Config &config, const Object &object, cons
         request.setRawHeader(header.name, header.value);
     request.setRawHeader("authorization"_ba, authorization(config, method, object.canonicalUri, headers, payloadHash, timestamp));
     request.setTransferTimeout(kTransferTimeout);
+    // The signature covers the host, so a redirect can never succeed, and following one would hand the signature to
+    // whatever host the server named. Qt's default policy does exactly that for https targets.
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QVariant::fromValue(QNetworkRequest::ManualRedirectPolicy));
     return request;
 }
 
 QString errorText(QNetworkReply *reply)
 {
-    if (reply->error() == QNetworkReply::NoError)
-        return {};
     // The transfer timeout aborts the reply, and nothing else does while `reply` is alive.
     if (reply->error() == QNetworkReply::OperationCanceledError)
         return Uploader::tr("The server stopped responding");
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (reply->error() == QNetworkReply::NoError) {
+        if (status >= 200 && status < 300)
+            return {};
+        // Redirects are not followed (signedRequest), and Qt does not count an unfollowed one as an error. The object
+        // was not stored, so the user must not get a link; the target host tells them which endpoint to configure.
+        const QUrl location = reply->header(QNetworkRequest::LocationHeader).toUrl();
+        if (status >= 300 && status < 400 && !location.host().isEmpty())
+            return Uploader::tr("The server redirected to %1 (HTTP %2); use that endpoint in the settings")
+                .arg(location.host())
+                .arg(status);
+        return Uploader::tr("Unexpected answer (HTTP %1)").arg(status);
+    }
     QString code;
     QString message;
     QXmlStreamReader xml(reply->readAll());
@@ -166,7 +180,6 @@ QString errorText(QNetworkReply *reply)
     }
     if (code.isEmpty())
         return reply->errorString();
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     return message.isEmpty() ? u"%1 (HTTP %2)"_s.arg(code).arg(status) : u"%1: %2 (HTTP %3)"_s.arg(code, message).arg(status);
 }
 
