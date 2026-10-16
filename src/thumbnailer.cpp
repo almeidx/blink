@@ -1,6 +1,7 @@
 #include "thumbnailer.h"
 
-#include "recording.h"
+#include "recorderpath.h"
+#include "recorderprotocol.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -24,14 +25,16 @@ using namespace Qt::StringLiterals;
 // Memory for thumbnails already made; those dropped come back from the disk cache.
 constexpr qsizetype kMemoryBytes = 64 << 20;
 constexpr int kVideoTimeoutMs = 10'000;
-// The value of the standard's Software key. A thumbnail Blink made is as large as its directory allows.
+// The value of the standard's Software key. A thumbnail Blink made is as large as its directory allows; the recorder
+// refuses anything larger than kThumbnailMaxSize.
 constexpr QLatin1StringView kSoftware = "Blink"_L1;
 
 struct Tier {
     QLatin1StringView directory;
     int size; // the largest thumbnail it holds, in pixels
 };
-constexpr std::array kTiers{Tier{"normal"_L1, 128}, Tier{"large"_L1, 256}, Tier{"x-large"_L1, 512}, Tier{"xx-large"_L1, 1024}};
+constexpr std::array kTiers{Tier{"normal"_L1, 128}, Tier{"large"_L1, 256}, Tier{"x-large"_L1, 512},
+                            Tier{"xx-large"_L1, recorder::kThumbnailMaxSize}};
 
 // The directory KIO picks for thumbnails of `box` at `ratio` (KIO::ThumbnailCache::tierDir), so both read and write
 // the same files: the box's longer side rounded up to a tier, times the ratio, rounded up to a tier again.
@@ -92,7 +95,10 @@ QImage videoThumbnail(const QString &path, int size, const std::atomic_bool &sto
 {
     QProcess process;
     process.setStandardErrorFile(QProcess::nullDevice());
-    process.start(recorderPath(), {u"--thumbnail"_s, QString::number(size), path}, QIODevice::ReadOnly);
+    process.start(recorderPath(),
+                  {QLatin1StringView(recorder::kOptThumbnail.data(), static_cast<qsizetype>(recorder::kOptThumbnail.size())),
+                   QString::number(size), path},
+                  QIODevice::ReadOnly);
     QElapsedTimer timer;
     timer.start();
     while (!process.waitForFinished(100)) {

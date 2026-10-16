@@ -58,7 +58,6 @@ private:
     QCache<QString, Made> made_;
     QHash<QString, Made> failed_; // the files' versions that could not be made, with a null image
     QSet<QString> pending_;
-    QString recorder_;
     std::shared_ptr<std::atomic_bool> stopping_ = std::make_shared<std::atomic_bool>(false);
     QThreadPool pool_;
 };

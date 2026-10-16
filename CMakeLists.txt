@@ -71,6 +71,7 @@ qt_add_executable(blink
     src/notifier.cpp src/notifier.h
     src/pathpattern.cpp src/pathpattern.h
     src/pngencoder.cpp src/pngencoder.h
+    src/recorderpath.cpp src/recorderpath.h
     src/recorderprotocol.h
     src/recording.cpp src/recording.h
     src/regionselector.cpp src/regionselector.h

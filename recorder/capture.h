@@ -5,6 +5,7 @@
 // audio is written into the mixer.
 
 #include "ffmpeg.h"
+#include "recorderprotocol.h"
 
 #include <pipewire/pipewire.h>
 #include <spa/buffer/meta.h>
@@ -26,7 +27,7 @@ public:
     struct Options {
         uint64_t target = 0;
         bool bySerial = true; // `target` is an object serial (64-bit), else a node id (32-bit)
-        int fps = 60;
+        int fps = kDefaultFps;
         bool systemAudio = false;
         bool microphone = false;
     };

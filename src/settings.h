@@ -1,5 +1,7 @@
 #pragma once
 
+#include "recorderprotocol.h"
+
 #include <QStandardPaths>
 #include <QString>
 
@@ -22,8 +24,9 @@ struct S3Config {
     bool operator==(const S3Config &) const = default;
 };
 
-enum class Quality { Low, Medium, High };
-enum class EncoderPreference { Auto, Nvenc, Vaapi, Software };
+// The recorder's own types, so the config file, the dialog and the command line can never disagree.
+using recorder::Quality;
+using EncoderPreference = recorder::Encoder;
 
 struct Settings {
     bool startAtLogin = true;
@@ -41,7 +44,7 @@ struct Settings {
     // Recordings, always saved
     QString recordingFolder;
     QString recordingSubfolder = QStringLiteral("{year}-{month}"); // likewise
-    int fps = 60;
+    int fps = recorder::kDefaultFps;
     Quality quality = Quality::High;
     EncoderPreference encoder = EncoderPreference::Auto;
     bool recordCursor = true;

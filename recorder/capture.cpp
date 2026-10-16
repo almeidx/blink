@@ -90,7 +90,7 @@ const spa_pod *videoFormat(spa_pod_builder &b, int fps)
     spa_pod_builder_push_choice(&b, &choice, SPA_CHOICE_Range, 0);
     spa_pod_builder_fraction(&b, rate, 1);
     spa_pod_builder_fraction(&b, 0, 1);
-    spa_pod_builder_fraction(&b, 1000, 1);
+    spa_pod_builder_fraction(&b, kMaxFps, 1);
     spa_pod_builder_pop(&b, &choice);
 
     spa_pod_builder_prop(&b, SPA_FORMAT_VIDEO_maxFramerate, 0);

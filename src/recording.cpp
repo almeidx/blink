@@ -1,11 +1,11 @@
 #include "recording.h"
 
+#include "recorderpath.h"
 #include "recorderprotocol.h"
 #include "screencast.h"
 
 #include <LayerShellQt/Window>
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -28,32 +28,11 @@ QLatin1StringView latin1(std::string_view text)
     return {text.data(), static_cast<qsizetype>(text.size())};
 }
 
-std::string_view qualityArgument(Quality quality)
+// One stdin line per command, as recorderprotocol.h has it.
+void sendCommand(QProcess &process, std::string_view command)
 {
-    switch (quality) {
-    case Quality::Low:
-        return recorder::kQualityLow;
-    case Quality::Medium:
-        return recorder::kQualityMedium;
-    case Quality::High:
-        break;
-    }
-    return recorder::kQualityHigh;
-}
-
-std::string_view encoderArgument(EncoderPreference encoder)
-{
-    switch (encoder) {
-    case EncoderPreference::Nvenc:
-        return recorder::kEncoderNvenc;
-    case EncoderPreference::Vaapi:
-        return recorder::kEncoderVaapi;
-    case EncoderPreference::Software:
-        return recorder::kEncoderSoftware;
-    case EncoderPreference::Auto:
-        break;
-    }
-    return recorder::kEncoderAuto;
+    process.write(command.data(), static_cast<qint64>(command.size()));
+    process.write("\n");
 }
 
 // One side of the frame: an input-transparent layer-shell strip, placed by its margins on its screen.
@@ -85,13 +64,6 @@ protected:
 
 } // namespace
 
-QString recorderPath()
-{
-    if (QString local = QCoreApplication::applicationDirPath() + u"/blink-recorder"_s; QFileInfo(local).isExecutable())
-        return local;
-    return QStringLiteral(BLINK_RECORDER_PATH);
-}
-
 Recording::Recording(const QRect &region, qreal scale, Options options, QObject *parent)
     : QObject(parent), region_(region), scale_(scale), options_(std::move(options))
 {
@@ -108,7 +80,7 @@ Recording::~Recording()
 {
     // QProcess would SIGKILL the recorder and leave a broken file; let it finish instead.
     if (process_.state() != QProcess::NotRunning) {
-        process_.write(aborting_ ? "abort\n" : "stop\n");
+        sendCommand(process_, aborting_ ? recorder::kCmdAbort : recorder::kCmdStop);
         process_.closeWriteChannel();
         process_.waitForFinished(10'000);
     }
@@ -138,9 +110,9 @@ void Recording::launch(quint64 target, bool isSerial)
                           latin1(recorder::kOptFps),
                           QString::number(options_.fps),
                           latin1(recorder::kOptQuality),
-                          latin1(qualityArgument(options_.quality)),
+                          latin1(recorder::name(options_.quality)),
                           latin1(recorder::kOptEncoder),
-                          latin1(encoderArgument(options_.encoder))};
+                          latin1(recorder::name(options_.encoder))};
     if (options_.systemAudio)
         arguments.append(latin1(recorder::kOptSystemAudio));
     if (options_.microphone)
@@ -190,7 +162,7 @@ void Recording::stop()
     case State::Starting:
     case State::Recording:
         state_ = State::Stopping;
-        process_.write(aborting_ ? "abort\n" : "stop\n");
+        sendCommand(process_, aborting_ ? recorder::kCmdAbort : recorder::kCmdStop);
         break;
     case State::Idle:
     case State::Stopping:

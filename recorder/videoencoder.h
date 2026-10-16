@@ -5,6 +5,7 @@
 // hwupload/scale_vaapi filter graph, the software encoders through swscale.
 
 #include "ffmpeg.h"
+#include "recorderprotocol.h"
 
 #include <cstdint>
 #include <string>
@@ -16,15 +17,12 @@ class Events;
 class FrameQueue;
 class Muxer;
 
-enum class EncoderFamily { Auto, Nvenc, Vaapi, Software };
-enum class Quality { Low, Medium, High };
-
 class VideoEncoder {
 public:
     struct Options {
-        EncoderFamily family = EncoderFamily::Auto;
+        Encoder family = Encoder::Auto;
         Quality quality = Quality::High;
-        int fps = 60;
+        int fps = kDefaultFps;
     };
 
     VideoEncoder(const Options &options, FrameQueue &queue, Muxer &muxer, Events &events);

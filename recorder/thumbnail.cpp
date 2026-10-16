@@ -1,6 +1,7 @@
 #include "thumbnail.h"
 
 #include "ffmpeg.h"
+#include "recorderprotocol.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -18,9 +19,6 @@ extern "C" {
 
 namespace blink::recorder {
 namespace {
-
-// The largest thumbnails the freedesktop.org cache holds (its xx-large directory).
-constexpr int kMaxSize = 1024;
 
 struct FormatCloser {
     void operator()(AVFormatContext *context) const { avformat_close_input(&context); }
@@ -88,8 +86,8 @@ int thumbnail(int argc, char **argv)
     const std::string_view sizeText = argv[2];
     int size = 0;
     if (const auto [end, error] = std::from_chars(sizeText.data(), sizeText.data() + sizeText.size(), size);
-        error != std::errc() || end != sizeText.data() + sizeText.size() || size < 1 || size > kMaxSize)
-        return fail("the size must be from 1 to " + std::to_string(kMaxSize));
+        error != std::errc() || end != sizeText.data() + sizeText.size() || size < 1 || size > kThumbnailMaxSize)
+        return fail("the size must be from 1 to " + std::to_string(kThumbnailMaxSize));
 
     // Local files in the containers the library lists only: a crafted file must not have FFmpeg open other files or
     // URLs. The "file:" prefix keeps a colon in the path from reading as a protocol.

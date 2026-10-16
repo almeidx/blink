@@ -89,27 +89,15 @@ std::optional<Arguments> parse(int argc, char **argv, std::string &error)
             arguments.output = value;
             valid = !value.empty();
         } else if (option == kOptFps) {
-            valid = parseNumber(value, arguments.video.fps) && arguments.video.fps > 0 && arguments.video.fps <= 1000;
+            valid = parseNumber(value, arguments.video.fps) && arguments.video.fps >= kMinFps && arguments.video.fps <= kMaxFps;
         } else if (option == kOptQuality) {
-            if (value == kQualityLow)
-                arguments.video.quality = Quality::Low;
-            else if (value == kQualityMedium)
-                arguments.video.quality = Quality::Medium;
-            else if (value == kQualityHigh)
-                arguments.video.quality = Quality::High;
-            else
-                valid = false;
+            const auto quality = qualityFromName(value);
+            valid = quality.has_value();
+            arguments.video.quality = quality.value_or(Quality::High);
         } else if (option == kOptEncoder) {
-            if (value == kEncoderAuto)
-                arguments.video.family = EncoderFamily::Auto;
-            else if (value == kEncoderNvenc)
-                arguments.video.family = EncoderFamily::Nvenc;
-            else if (value == kEncoderVaapi)
-                arguments.video.family = EncoderFamily::Vaapi;
-            else if (value == kEncoderSoftware)
-                arguments.video.family = EncoderFamily::Software;
-            else
-                valid = false;
+            const auto encoder = encoderFromName(value);
+            valid = encoder.has_value();
+            arguments.video.family = encoder.value_or(Encoder::Auto);
         } else {
             error = "unknown option " + std::string(option);
             return std::nullopt;

@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 
 #include <algorithm>
+#include <string_view>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -21,52 +22,35 @@ QString defaultFolder(QStandardPaths::StandardLocation location)
     return QStandardPaths::writableLocation(location) + u"/Blink"_s;
 }
 
-QLatin1StringView qualityName(Quality quality)
+QLatin1StringView latin1(std::string_view text)
 {
-    switch (quality) {
-    case Quality::Low:
-        return "low"_L1;
-    case Quality::Medium:
-        return "medium"_L1;
-    case Quality::High:
-        break;
-    }
-    return "high"_L1;
+    return {text.data(), static_cast<qsizetype>(text.size())};
 }
 
+std::string_view utf8(const QByteArray &bytes)
+{
+    return {bytes.constData(), static_cast<size_t>(bytes.size())};
+}
+
+QLatin1StringView qualityName(Quality quality)
+{
+    return latin1(recorder::name(quality));
+}
+
+// Unknown or missing names keep today's defaults, so an older config file loads as before.
 Quality qualityFromName(const QString &name)
 {
-    if (name == "low"_L1)
-        return Quality::Low;
-    if (name == "medium"_L1)
-        return Quality::Medium;
-    return Quality::High;
+    return recorder::qualityFromName(utf8(name.toLatin1())).value_or(Quality::High);
 }
 
 QLatin1StringView encoderName(EncoderPreference encoder)
 {
-    switch (encoder) {
-    case EncoderPreference::Nvenc:
-        return "nvenc"_L1;
-    case EncoderPreference::Vaapi:
-        return "vaapi"_L1;
-    case EncoderPreference::Software:
-        return "software"_L1;
-    case EncoderPreference::Auto:
-        break;
-    }
-    return "auto"_L1;
+    return latin1(recorder::name(encoder));
 }
 
 EncoderPreference encoderFromName(const QString &name)
 {
-    if (name == "nvenc"_L1)
-        return EncoderPreference::Nvenc;
-    if (name == "vaapi"_L1)
-        return EncoderPreference::Vaapi;
-    if (name == "software"_L1)
-        return EncoderPreference::Software;
-    return EncoderPreference::Auto;
+    return recorder::encoderFromName(utf8(name.toLatin1())).value_or(EncoderPreference::Auto);
 }
 
 // Creates the file readable by its owner only, so the secret key is never on disk with wider permissions.
@@ -123,7 +107,7 @@ Settings Settings::load()
     if (!QDir::isAbsolutePath(s.recordingFolder))
         s.recordingFolder = defaultFolder(QStandardPaths::MoviesLocation);
     s.recordingSubfolder = settings.value(u"Recording/subfolder"_s, s.recordingSubfolder).toString();
-    s.fps = std::clamp(settings.value(u"Recording/fps"_s, s.fps).toInt(), 1, 240);
+    s.fps = std::clamp(settings.value(u"Recording/fps"_s, s.fps).toInt(), recorder::kMinFps, recorder::kMaxFps);
     s.quality = qualityFromName(settings.value(u"Recording/quality"_s).toString());
     s.encoder = encoderFromName(settings.value(u"Recording/encoder"_s).toString());
     s.recordCursor = settings.value(u"Recording/cursor"_s, s.recordCursor).toBool();

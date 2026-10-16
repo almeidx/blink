@@ -110,7 +110,7 @@ void VideoEncoder::run()
     }
     // A CUDA context takes ~150 ms to create. Made while PipeWire negotiates the stream, it is not on the path of the
     // first frame, during which later frames are dropped. Fails quickly without NVIDIA's driver.
-    if (options_.family == EncoderFamily::Auto || options_.family == EncoderFamily::Nvenc) {
+    if (options_.family == Encoder::Auto || options_.family == Encoder::Nvenc) {
         AVBufferRef *cuda = nullptr;
         if (av_hwdevice_ctx_create(&cuda, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0) >= 0)
             cuda_.reset(cuda);
@@ -157,16 +157,16 @@ bool VideoEncoder::open(const AVFrame *frame)
     std::span<const Kind> kinds;
     static constexpr std::array kCandidates{Kind::Nvenc, Kind::Vaapi, Kind::X264, Kind::OpenH264};
     switch (options_.family) {
-    case EncoderFamily::Auto:
+    case Encoder::Auto:
         kinds = kCandidates;
         break;
-    case EncoderFamily::Nvenc:
+    case Encoder::Nvenc:
         kinds = std::span(kCandidates).subspan(0, 1);
         break;
-    case EncoderFamily::Vaapi:
+    case Encoder::Vaapi:
         kinds = std::span(kCandidates).subspan(1, 1);
         break;
-    case EncoderFamily::Software:
+    case Encoder::Software:
         kinds = std::span(kCandidates).subspan(2);
         break;
     }
