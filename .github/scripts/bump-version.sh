@@ -2,14 +2,14 @@
 # Bumps the release version in CMakeLists.txt, packaging/PKGBUILD and packaging/blink-capture.spec,
 # then prints the new version.
 #
-# Usage: bump-version.sh <patch|minor|major|prerelease> [alpha|beta|rc]
+# Usage: bump-version.sh <patch|minor|major|prerelease|preminor|premajor> [alpha|beta|rc]
 #
 # The semver in CMakeLists.txt is the source of truth. A prerelease such as 0.2.0-rc.1 becomes
 # pkgver 0.2.0rc.1 (pacman forbids '-'; a letter right after the number sorts before 0.2.0) and
 # RPM Version 0.2.0~rc.1 ('~' sorts before 0.2.0).
 set -euo pipefail
 
-bump="${1:?usage: bump-version.sh <patch|minor|major|prerelease> [alpha|beta|rc]}"
+bump="${1:?usage: bump-version.sh <patch|minor|major|prerelease|preminor|premajor> [alpha|beta|rc]}"
 prerelease_tag="${2:-alpha}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cmake="$root/CMakeLists.txt"
@@ -48,6 +48,8 @@ tag_order() {
 
 # Like npm version, a major/minor/patch bump of a prerelease releases it when that satisfies the
 # bump: 0.1.1-rc.2 becomes 0.1.1 on patch, and 0.2.0-rc.1 becomes 0.2.0 on patch or minor.
+# prerelease continues the current prerelease (alpha.2 -> alpha.3, or -> beta.1) or, from a stable version, starts
+# the next patch's; preminor/premajor start the next minor's/major's (0.1.1 -> 0.2.0-alpha.1 / 1.0.0-alpha.1).
 # A lower tag than the current one (rc -> alpha) is refused: every package manager would sort it as a downgrade.
 case "$bump" in
   major)
@@ -82,6 +84,12 @@ case "$bump" in
     else
       version="$major.$minor.$patch-$prerelease_tag.1"
     fi
+    ;;
+  preminor)
+    version="$major.$((minor + 1)).0-$prerelease_tag.1"
+    ;;
+  premajor)
+    version="$((major + 1)).0.0-$prerelease_tag.1"
     ;;
   *)
     echo "Unsupported bump type: '$bump'" >&2

@@ -12,8 +12,10 @@ on:
           - minor
           - major
           - prerelease
+          - preminor
+          - premajor
       prerelease_tag:
-        description: Pre-release tag to use when bump is prerelease.
+        description: Pre-release tag to use when bump is prerelease, preminor or premajor.
         required: true
         default: alpha
         type: choice
