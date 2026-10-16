@@ -54,9 +54,9 @@ static QImage dim(const QImage &image)
             auto *out = reinterpret_cast<uint32_t *>(dst + y * dstStride);
             for (int x = 0; x < width; ++x) {
                 const uint32_t p = in[x];
-                const uint32_t rb = ((p & 0x00ff00ffu) * 5u >> 3) & 0x00ff00ffu;
-                const uint32_t g = ((p >> 8) & 0xffu) * 5u >> 3;
-                out[x] = 0xff000000u | rb | (g << 8);
+                const uint32_t rb = ((p & 0x00ff00ffu) * 5u >> 3u) & 0x00ff00ffu;
+                const uint32_t g = ((p >> 8u) & 0xffu) * 5u >> 3u;
+                out[x] = 0xff000000u | rb | (g << 8u);
             }
         }
     };
@@ -148,8 +148,10 @@ SelectionWindow::SelectionWindow(RegionSelector *selector, int index, QScreen *s
     auto *layer = LayerShellQt::Window::get(this);
     layer->setScope(u"blink-region"_s);
     layer->setLayer(LayerShellQt::Window::LayerOverlay);
+    // NOLINTBEGIN(bugprone-signed-bitwise): the anchors are an unscoped enum, ORed as intended.
     layer->setAnchors({LayerShellQt::Window::AnchorTop | LayerShellQt::Window::AnchorBottom | LayerShellQt::Window::AnchorLeft
                        | LayerShellQt::Window::AnchorRight});
+    // NOLINTEND(bugprone-signed-bitwise)
     layer->setExclusiveZone(-1);
     layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityExclusive);
     layer->setScreen(screen);

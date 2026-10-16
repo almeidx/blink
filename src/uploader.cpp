@@ -196,7 +196,7 @@ QFuture<QByteArray> hashFile(const QString &path)
 {
     QPromise<QByteArray> promise;
     QFuture<QByteArray> future = promise.future();
-    QThreadPool::globalInstance()->start([path, promise = std::move(promise)]() mutable {
+    QThreadPool::globalInstance()->start([path, promise = std::move(promise)] mutable {
         promise.start();
         QFile file(path);
         QCryptographicHash hash(QCryptographicHash::Sha256);

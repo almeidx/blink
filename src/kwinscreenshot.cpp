@@ -163,7 +163,7 @@ void KWinScreenshot::call(const QString &method, QVariantList arguments, const O
         return;
     }
     // Fewer wakeups for the 33 MB of a 4K screen; fails harmlessly above /proc/sys/fs/pipe-max-size.
-    ::fcntl(fds[0], F_SETPIPE_SZ, 1 << 20);
+    ::fcntl(fds[0], F_SETPIPE_SZ, 1u << 20); // NOLINT(bugprone-signed-bitwise)
 
     arguments.append(QVariantMap{
         {u"native-resolution"_s, true},
