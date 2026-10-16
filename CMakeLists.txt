@@ -35,7 +35,7 @@ pkg_check_modules(Wayland REQUIRED IMPORTED_TARGET wayland-client)
 # which WirePlumber honours from 0.5 (PipeWire 1.0.2+).
 pkg_check_modules(PipeWire REQUIRED IMPORTED_TARGET libpipewire-0.3>=1.0)
 # FFmpeg 7.1 or newer: avcodec_get_supported_config replaced AVCodec::pix_fmts.
-pkg_check_modules(FFmpeg REQUIRED IMPORTED_TARGET libavcodec>=61.19 libavformat libavfilter libavutil libswresample libswscale)
+pkg_check_modules(FFmpeg REQUIRED IMPORTED_TARGET libavcodec>=61.19 libavformat libavfilter libavutil libswscale)
 qt_standard_project_setup()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
