@@ -65,6 +65,8 @@ private:
     // NVENC
     BufferPtr cuda_;
     // VA-API
+    BufferPtr vaapi_;       // the first device openVaapi() tries, created by run() before the first frame; open() releases it
+    std::string vaapiNode_; // vaapi_'s render node; empty for libva's default device
     BufferPtr device_;
     FilterGraphPtr graph_;
     AVFilterContext *source_ = nullptr;

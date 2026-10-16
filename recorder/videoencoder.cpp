@@ -20,6 +20,7 @@ extern "C" {
 #include <vector>
 
 #include <dirent.h>
+#include <unistd.h>
 
 namespace blink::recorder {
 namespace {
@@ -48,16 +49,26 @@ bool isRgb(AVPixelFormat format)
     return (av_pix_fmt_desc_get(format)->flags & AV_PIX_FMT_FLAG_RGB) != 0;
 }
 
-// VA-API render nodes, in name order, for when the default device cannot encode (e.g. it is NVIDIA's).
-std::vector<std::string> renderNodes()
+// The kernel driver behind a render node is NVIDIA's: its VA-API driver (nvidia-vaapi-driver) only decodes.
+bool nvidiaNode(std::string_view node)
+{
+    std::array<char, 256> target{};
+    const std::string link = "/sys/class/drm/" + std::string(node) + "/device/driver";
+    const ssize_t size = readlink(link.c_str(), target.data(), target.size());
+    return size > 0 && std::string_view(target.data(), static_cast<size_t>(size)).ends_with("/nvidia");
+}
+
+// The render nodes VA-API may encode on, in name order. NVIDIA's are left out: creating a device there takes
+// ~200 ms for an encoder that always fails, while the first frames wait (NVENC is the encoder for that GPU).
+std::vector<std::string> vaapiNodes()
 {
     std::vector<std::string> nodes;
     DIR *dir = opendir("/dev/dri");
     if (!dir)
         return nodes;
     while (const dirent *entry = readdir(dir)) {
-        if (std::string_view(entry->d_name).starts_with("renderD"))
-            nodes.push_back(std::string("/dev/dri/") + entry->d_name);
+        if (const std::string_view name = entry->d_name; name.starts_with("renderD") && !nvidiaNode(name))
+            nodes.push_back("/dev/dri/" + std::string(name));
     }
     closedir(dir);
     std::ranges::sort(nodes);
@@ -114,6 +125,16 @@ void VideoEncoder::run()
         AVBufferRef *cuda = nullptr;
         if (av_hwdevice_ctx_create(&cuda, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0) >= 0)
             cuda_.reset(cuda);
+    }
+    // The same for the first device openVaapi() tries: creating it on the first frame would drop frames too. Not
+    // with a CUDA context in Auto: NVENC is tried first and wins.
+    if (options_.family == Encoder::Vaapi || (options_.family == Encoder::Auto && !cuda_)) {
+        const std::vector<std::string> nodes = vaapiNodes();
+        if (!nodes.empty())
+            vaapiNode_ = nodes.front();
+        AVBufferRef *vaapi = nullptr;
+        if (av_hwdevice_ctx_create(&vaapi, AV_HWDEVICE_TYPE_VAAPI, nodes.empty() ? nullptr : vaapiNode_.c_str(), nullptr, 0) >= 0)
+            vaapi_.reset(vaapi);
     }
     for (;;) {
         FrameQueue::Format format;
@@ -191,6 +212,8 @@ bool VideoEncoder::open(const FrameQueue::Format &input)
             // Created eagerly in run() for NVENC; another encoder won, so give the GPU memory back.
             if (kind != Kind::Nvenc)
                 cuda_.reset();
+            // The same for run()'s VA-API device; if VA-API won, device_ holds its own reference.
+            vaapi_.reset();
             if (std::string message = muxer_.setParameters(muxer_.videoStream(), codec_.get()); !message.empty()) {
                 events_.fail(message);
                 return false;
@@ -313,17 +336,22 @@ std::string VideoEncoder::openCodec(const char *name, const FrameQueue::Format &
     return {};
 }
 
+// Each VA-API render node in turn, each tried once; libva's default device only when no node is listed.
 std::string VideoEncoder::openVaapi(const FrameQueue::Format &input)
 {
-    std::string errors = openVaapiDevice(nullptr, input);
-    if (errors.empty())
-        return {};
-    for (const std::string &node : renderNodes()) {
-        reset();
+    const std::vector<std::string> nodes = vaapiNodes();
+    if (nodes.empty())
+        return openVaapiDevice(nullptr, input);
+    std::string errors;
+    for (const std::string &node : nodes) {
+        if (!errors.empty()) {
+            reset();
+            errors += "; ";
+        }
         const std::string error = openVaapiDevice(node.c_str(), input);
         if (error.empty())
             return {};
-        errors += "; " + error;
+        errors += error;
     }
     return errors;
 }
@@ -331,11 +359,19 @@ std::string VideoEncoder::openVaapi(const FrameQueue::Format &input)
 std::string VideoEncoder::openVaapiDevice(const char *device, const FrameQueue::Format &input)
 {
     const std::string prefix = std::string("h264_vaapi on ") + (device ? device : "the default device") + ": ";
-    AVBufferRef *created = nullptr;
-    int error = av_hwdevice_ctx_create(&created, AV_HWDEVICE_TYPE_VAAPI, device, nullptr, 0);
-    if (error < 0)
-        return prefix + avError(error);
-    device_.reset(created);
+    int error = 0;
+    if (vaapi_ && vaapiNode_ == std::string_view(device ? device : "")) {
+        // run() created this one ahead of time; a reference survives reset() between attempts.
+        device_.reset(av_buffer_ref(vaapi_.get()));
+        if (!device_)
+            return prefix + "out of memory";
+    } else {
+        AVBufferRef *created = nullptr;
+        error = av_hwdevice_ctx_create(&created, AV_HWDEVICE_TYPE_VAAPI, device, nullptr, 0);
+        if (error < 0)
+            return prefix + avError(error);
+        device_.reset(created);
+    }
 
     graph_.reset(avfilter_graph_alloc());
     if (!graph_)
