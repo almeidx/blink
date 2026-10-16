@@ -35,6 +35,13 @@ public:
     void read(float *left, float *right, int frames);
     int64_t readPosition();
 
+    // Diagnostics: how often a source was moved to its arrival time because it drifted, and the largest move.
+    struct Resyncs {
+        uint64_t count = 0;
+        int64_t largestFrames = 0;
+    };
+    Resyncs resyncs(int source);
+
 private:
     static constexpr int64_t kUnset = INT64_MIN;
     static constexpr int64_t kCapacity = 4 * kRate; // also covers the encoder start-up before the file header exists
@@ -46,6 +53,7 @@ private:
     int64_t readPosition_ = 0;
     std::array<int64_t, kMaxSources> next_{}; // where each source's next buffer goes when it stays contiguous
     std::array<bool, kMaxSources> synced_{};
+    std::array<Resyncs, kMaxSources> resyncs_{};
 };
 
 } // namespace blink::recorder

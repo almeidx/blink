@@ -31,8 +31,14 @@ void Mixer::write(int source, const float *samples, uint32_t frames, int64_t end
     auto &next = next_[static_cast<size_t>(source)];
     auto &synced = synced_[static_cast<size_t>(source)];
     // Wake-up jitter would otherwise turn into clicks: a source stays contiguous unless it really drifted.
-    if (!synced || std::abs(first - next) > kMaxDrift)
+    if (!synced || std::abs(first - next) > kMaxDrift) {
+        if (synced) {
+            Resyncs &resyncs = resyncs_[static_cast<size_t>(source)];
+            ++resyncs.count;
+            resyncs.largestFrames = std::max(resyncs.largestFrames, std::abs(first - next));
+        }
         next = first;
+    }
     synced = true;
     const int64_t start = next;
     next += frames;
@@ -76,6 +82,12 @@ int64_t Mixer::readPosition()
 {
     std::lock_guard lock(mutex_);
     return readPosition_;
+}
+
+Mixer::Resyncs Mixer::resyncs(int source)
+{
+    std::lock_guard lock(mutex_);
+    return resyncs_[static_cast<size_t>(source)];
 }
 
 } // namespace blink::recorder

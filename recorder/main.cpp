@@ -251,6 +251,13 @@ int record(const Arguments &arguments, int signals)
     // Diagnostics only: frames go when the encoder cannot keep up, or is still opening when the first frames arrive.
     if (const uint64_t dropped = frames.dropped(); dropped > 0)
         std::fputs(("blink-recorder: the encoder fell behind, " + std::to_string(dropped) + " frames dropped\n").c_str(), stderr);
+    for (int source = 0; source < capture.audioSources(); ++source) {
+        if (const Mixer::Resyncs resyncs = mixer.resyncs(source); resyncs.count > 0)
+            std::fputs(("blink-recorder: audio source " + std::to_string(source) + " re-synced " + std::to_string(resyncs.count)
+                        + " times, largest jump " + std::to_string(resyncs.largestFrames * 1000 / Mixer::kRate) + " ms\n")
+                           .c_str(),
+                       stderr);
+    }
     Events::emit(kEvFinished);
     return 0;
 }
