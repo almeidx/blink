@@ -8,6 +8,7 @@
 #include <QSize>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 class QWindow;
@@ -68,6 +69,8 @@ private:
     QString encoder_;
     QSize videoSize_;
     QString error_;
+    // Set by fail() while the recorder still runs; exited() reports it. Optional because KWin's text may be empty.
+    std::optional<QString> failure_;
     std::unique_ptr<Screencast> screencast_;
     QProcess process_;
     std::vector<std::unique_ptr<QWindow>> frame_;

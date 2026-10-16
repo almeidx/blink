@@ -66,6 +66,7 @@ private:
                         const QImage &thumbnail);
     void startRecording(const QRect &region, qreal scale, const QString &app);
     void recordingDone();
+    void quit(); // the tray's Quit: a running recording is finished first
     void deliverRecording(const QString &path, const CaptureInfo &info);
     // From memory when `path` is empty, else from the file.
     void upload(const QByteArray &data, const QString &path, const CaptureInfo &info, const QString &contentType);
@@ -98,6 +99,7 @@ private:
     QPointer<Recording> recording_;
     QElapsedTimer recordingTimer_;
     QTimer recordingTicker_; // keeps the tray tooltip's elapsed time current
+    bool quitting_ = false; // Quit was chosen during a recording: recordingDone() ends the app
     QPointer<SettingsDialog> dialog_;
     QPointer<LibraryWindow> library_;
 };

@@ -221,7 +221,7 @@ void App::createTray()
     menu_->addSeparator();
     menu_->addAction(QIcon::fromTheme(u"folder-pictures"_s), tr("Library"), this, &App::showLibrary);
     menu_->addAction(QIcon::fromTheme(u"configure"_s), u"Settings…"_s, this, &App::showSettings);
-    menu_->addAction(QIcon::fromTheme(u"application-exit"_s), u"Quit"_s, qApp, &QCoreApplication::quit);
+    menu_->addAction(QIcon::fromTheme(u"application-exit"_s), u"Quit"_s, this, &App::quit);
 
     tray_ = new QSystemTrayIcon(appIcon(), this);
     tray_->setContextMenu(menu_.get());
@@ -246,6 +246,8 @@ void App::updateTray()
     tray_->setIcon(recording ? QIcon::fromTheme(u"media-record"_s, appIcon()) : appIcon());
     if (!recording)
         tray_->setToolTip(u"Blink"_s);
+    else if (quitting_)
+        tray_->setToolTip(tr("Blink: finishing the recording…"));
     else if (recordingTimer_.isValid())
         tray_->setToolTip(tr("Blink: recording %1. Click to stop.").arg(elapsedText(std::chrono::milliseconds(recordingTimer_.elapsed()))));
     else
@@ -294,6 +296,19 @@ void App::toggleRecording()
         recording_->stop();
     else
         selectRegion(Purpose::Recording);
+}
+
+void App::quit()
+{
+    if (!recording_) {
+        QCoreApplication::quit();
+        return;
+    }
+    // Ending the event loop now would destroy the Recording while blink-recorder writes the end of the file (with
+    // +faststart that rewrites all of it). recordingDone() quits once the recorder has reported its outcome.
+    quitting_ = true;
+    recording_->stop();
+    updateTray();
 }
 
 void App::selectRegion(Purpose purpose)
@@ -493,6 +508,9 @@ void App::recordingDone()
     // The file is complete now, or gone.
     if (library_)
         library_->rescan();
+    // Queued: the finished and failed handlers deliver the file or report the error right after this returns.
+    if (quitting_)
+        QMetaObject::invokeMethod(this, [] { QCoreApplication::quit(); }, Qt::QueuedConnection);
 }
 
 void App::deliverRecording(const QString &path, const CaptureInfo &info)

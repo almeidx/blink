@@ -78,7 +78,9 @@ Recording::Recording(const QRect &region, qreal scale, Options options, QObject 
 
 Recording::~Recording()
 {
-    // QProcess would SIGKILL the recorder and leave a broken file; let it finish instead.
+    // Last resort. App deletes a Recording only after its outcome signal, which comes once the recorder has exited
+    // (App::quit() and fail() wait for it), so a running recorder here means the event loop ended some other way.
+    // QProcess would SIGKILL it, possibly in the middle of the +faststart rewrite; let it finish instead.
     if (process_.state() != QProcess::NotRunning) {
         sendCommand(process_, aborting_ ? recorder::kCmdAbort : recorder::kCmdStop);
         process_.closeWriteChannel();
@@ -184,6 +186,11 @@ void Recording::exited(int code, QProcess::ExitStatus status)
     if (state_ == State::Done)
         return;
     state_ = State::Done;
+    // A failure that fail() held back wins over however the recorder itself ended (it was told to abort).
+    if (failure_) {
+        Q_EMIT failed(*failure_);
+        return;
+    }
     if (status == QProcess::NormalExit && code == 0) {
         if (aborting_)
             Q_EMIT aborted();
@@ -198,11 +205,21 @@ void Recording::fail(const QString &error)
 {
     if (state_ == State::Done)
         return;
+    if (process_.state() != QProcess::NotRunning) {
+        if (failure_)
+            return;
+        // Reported from exited(): App deletes this on failed(), and ~Recording would then block the GUI on the recorder.
+        failure_ = error;
+        aborting_ = true;
+        state_ = State::Stopping;
+        sendCommand(process_, recorder::kCmdAbort);
+        cleanUp();
+        return;
+    }
     state_ = State::Done;
-    if (process_.state() != QProcess::NotRunning)
-        process_.write("abort\n");
     cleanUp();
-    Q_EMIT failed(error);
+    // A failure held back above while the process was starting, which then failed to start, is still the first one.
+    Q_EMIT failed(failure_.value_or(error));
 }
 
 void Recording::showFrame()
