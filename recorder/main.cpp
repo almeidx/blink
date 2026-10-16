@@ -190,6 +190,11 @@ Outcome control(Events &events, int signals, std::string &error)
 int record(const Arguments &arguments, int signals)
 {
     Events events;
+    if (!events.valid()) {
+        // control() would poll an invalid descriptor and never see a worker thread's failure.
+        Events::emit(kEvError, "cannot create the event descriptor");
+        return 1;
+    }
     Muxer muxer;
     FrameQueue frames;
     Mixer mixer;

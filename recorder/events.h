@@ -27,6 +27,7 @@ public:
 
     // main(): readable when one of the above happened.
     int fd() const { return fd_; }
+    bool valid() const { return fd_ >= 0; } // eventfd() succeeded; without it poll() never wakes for fail()/sourceEnded()
     void clear() const;
     bool failed(std::string &message);
     bool ended() const { return ended_.load(std::memory_order_acquire); }
