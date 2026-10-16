@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cinttypes>
 #include <cstdlib>
 #include <cstring>
 
@@ -223,7 +224,7 @@ std::string Capture::connectVideo(const Options &options)
     pw_properties *props = pw_properties_new(PW_KEY_MEDIA_TYPE, "Video", PW_KEY_MEDIA_CATEGORY, "Capture", PW_KEY_MEDIA_ROLE, "Screen",
                                              "node.dont-fallback", "true", nullptr);
     if (options.bySerial)
-        pw_properties_setf(props, PW_KEY_TARGET_OBJECT, "%u", options.target);
+        pw_properties_setf(props, PW_KEY_TARGET_OBJECT, "%" PRIu64, options.target);
     video_ = pw_stream_new(core_, "blink-recorder", props);
     if (!video_)
         return "cannot create the screen cast stream";
@@ -245,7 +246,7 @@ std::string Capture::connectVideo(const Options &options)
     // Without RT_PROCESS the frames are copied on the PipeWire thread loop, not on the data thread that also runs
     // the audio streams.
     const int error = pw_stream_connect(
-        video_, PW_DIRECTION_INPUT, options.bySerial ? PW_ID_ANY : options.target,
+        video_, PW_DIRECTION_INPUT, options.bySerial ? PW_ID_ANY : static_cast<uint32_t>(options.target),
         static_cast<pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_DONT_RECONNECT), params, 1);
     if (error < 0)
         return std::string("cannot connect to the screen cast: ") + strerror(-error);

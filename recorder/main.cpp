@@ -18,6 +18,7 @@ extern "C" {
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <optional>
@@ -81,6 +82,8 @@ std::optional<Arguments> parse(int argc, char **argv, std::string &error)
         if (option == kOptSerial || option == kOptNode) {
             valid = parseNumber(value, arguments.capture.target);
             arguments.capture.bySerial = option == kOptSerial;
+            // Node ids are 32-bit and go to pw_stream_connect() as they are; only serials use the full width.
+            valid = valid && (arguments.capture.bySerial || arguments.capture.target <= UINT32_MAX);
             target = true;
         } else if (option == kOptOutput) {
             arguments.output = value;

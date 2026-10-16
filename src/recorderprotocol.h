@@ -6,8 +6,8 @@
 // Command line:
 //   blink-recorder (--serial <n> | --node <n>) --output <file.mp4> [--fps <n>] [--quality low|medium|high]
 //                  [--encoder auto|nvenc|vaapi|software] [--system-audio] [--microphone]
-// --serial is the PipeWire object serial of KWin's screencast stream (zkde_screencast v6+), --node its node id
-// (older KWin). Defaults: --fps 60 --quality high --encoder auto, no audio.
+// --serial is the 64-bit PipeWire object serial of KWin's screencast stream (zkde_screencast v6+), --node its 32-bit
+// node id (older KWin). Defaults: --fps 60 --quality high --encoder auto, no audio.
 //
 // stdin, one command per line: "stop" finishes the file, "abort" deletes it. EOF, SIGINT and SIGTERM count as "stop".
 // stdout, one event per line: "<event>" or "<event> <text>".
