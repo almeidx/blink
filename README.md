@@ -123,6 +123,14 @@ cmake --build build
 run-clang-tidy -p build -quiet '/(src|recorder)/[^/]*$'
 ```
 
+**Running from `build/`**: `./build/blink` never writes or removes the start-at-login entry,
+`~/.config/autostart/blink.desktop`; only the installed `blink` does. If an older build wrote it, delete it and start
+the installed Blink once. A build-tree Blink shares `~/.config/blink/blink.conf` and the global shortcuts with an
+installed one, and the first start with a fresh `blink.conf` takes Spectacle's shortcuts. To keep its settings apart,
+run `XDG_CONFIG_HOME=$PWD/build/dev-config ./build/blink`; global shortcuts stay shared. The `sed` line above pastes
+the checkout path into `Exec=` unquoted, so the path must not contain spaces, quotes or characters the Desktop Entry
+spec reserves, such as `$`, `;`, `&`, `|`, `<`, `>`, `*`, `?`, `#`, `(` and `)`.
+
 ## License
 
 [Apache License 2.0](LICENSE)

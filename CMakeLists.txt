@@ -96,6 +96,8 @@ target_link_options(blink PRIVATE -Wl,--as-needed)
 target_compile_definitions(blink PRIVATE
     BLINK_VERSION="${BLINK_VERSION}"
     BLINK_RECORDER_PATH="${BLINK_RECORDER_PATH}"
+    # Where the package puts blink. Only that binary manages the start-at-login entry, see App::applyAutostart().
+    BLINK_INSTALLED_PATH="${CMAKE_INSTALL_FULL_BINDIR}/blink"
     QT_NO_CAST_FROM_ASCII
     QT_NO_CAST_TO_ASCII
     QT_NO_URL_CAST_FROM_STRING

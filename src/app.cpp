@@ -604,12 +604,18 @@ void App::applySettings(const Settings &settings)
 
 void App::applyAutostart() const
 {
+    // Only the installed binary manages the entry. From a build tree, writing it would make that tree start at every
+    // login, and removing it would undo the installed Blink's setting.
+    if (const QString self = QCoreApplication::applicationFilePath(); self != QStringLiteral(BLINK_INSTALLED_PATH)) {
+        qCDebug(lcBlink) << "autostart entry left alone:" << self << "is not" << BLINK_INSTALLED_PATH;
+        return;
+    }
     const QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + u"/autostart/blink.desktop"_s;
     if (!settings_.startAtLogin) {
         QFile::remove(path);
         return;
     }
-    // An existing entry is left alone, so running a build tree once does not make it the one that starts at login.
+    // An existing entry is kept as it is, with any edits made to it since it was written.
     if (QFileInfo::exists(path))
         return;
     const QByteArray entry = "[Desktop Entry]\nType=Application\nName=Blink\nComment=Screenshots and screen recordings\nIcon=blink\nExec="
