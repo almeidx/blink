@@ -87,6 +87,20 @@ bool S3Config::isComplete() const
     return !endpoint.isEmpty() && !region.isEmpty() && !bucket.isEmpty() && !accessKey.isEmpty() && !secretKey.isEmpty();
 }
 
+QString Settings::normalizeFolder(const QString &text, QStandardPaths::StandardLocation fallback)
+{
+    QString folder = text.trimmed();
+    if (folder.isEmpty())
+        return defaultFolder(fallback);
+    // Shell habits: "~" and "~/..." mean the home directory, which QDir would otherwise create literally.
+    if (folder == u"~"_s)
+        folder = QDir::homePath();
+    else if (folder.startsWith(u"~/"_s))
+        folder = QDir::homePath() + folder.sliced(1);
+    folder = QDir::cleanPath(folder); // also drops a trailing slash, except for "/" itself
+    return folder;
+}
+
 Settings Settings::load()
 {
     const QSettings settings;
@@ -100,13 +114,13 @@ Settings Settings::load()
     s.windowShadow = settings.value(u"Screenshots/windowShadow"_s, s.windowShadow).toBool();
     s.magnifier = settings.value(u"Screenshots/magnifier"_s, s.magnifier).toBool();
     s.saveScreenshots = settings.value(u"Screenshots/save"_s, s.saveScreenshots).toBool();
-    s.screenshotFolder = settings.value(u"Screenshots/folder"_s).toString();
-    if (s.screenshotFolder.isEmpty())
+    s.screenshotFolder = normalizeFolder(settings.value(u"Screenshots/folder"_s).toString(), QStandardPaths::PicturesLocation);
+    if (!QDir::isAbsolutePath(s.screenshotFolder)) // a hand-edited config must not send captures to the working directory
         s.screenshotFolder = defaultFolder(QStandardPaths::PicturesLocation);
     s.screenshotSubfolder = settings.value(u"Screenshots/subfolder"_s, s.screenshotSubfolder).toString();
 
-    s.recordingFolder = settings.value(u"Recording/folder"_s).toString();
-    if (s.recordingFolder.isEmpty())
+    s.recordingFolder = normalizeFolder(settings.value(u"Recording/folder"_s).toString(), QStandardPaths::MoviesLocation);
+    if (!QDir::isAbsolutePath(s.recordingFolder))
         s.recordingFolder = defaultFolder(QStandardPaths::MoviesLocation);
     s.recordingSubfolder = settings.value(u"Recording/subfolder"_s, s.recordingSubfolder).toString();
     s.fps = std::clamp(settings.value(u"Recording/fps"_s, s.fps).toInt(), 1, 240);

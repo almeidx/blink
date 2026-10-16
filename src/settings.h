@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QStandardPaths>
 #include <QString>
 
 namespace blink {
@@ -50,6 +51,10 @@ struct Settings {
     bool uploadRecordings = false;
     bool copyUrl = true; // the link replaces the capture on the clipboard once the upload is done
     S3Config s3;
+
+    // A save folder as the user typed it, made safe to build paths on: trimmed, `~` expanded, cleaned, no trailing
+    // slash; empty becomes the default under `fallback`. A relative result is left relative so the dialog can refuse it.
+    static QString normalizeFolder(const QString &text, QStandardPaths::StandardLocation fallback);
 
     static Settings load();
     // Also restricts the config file to its owner, since it holds the S3 secret key.

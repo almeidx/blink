@@ -8,6 +8,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -19,6 +20,7 @@
 #include <QMenu>
 #include <QProcess>
 #include <QPushButton>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QTabWidget>
 #include <QToolButton>
@@ -79,6 +81,13 @@ QString subfolderToolTip()
 {
     return SettingsDialog::tr("Placeholders in braces are filled in for each capture, and / separates folders. Leave it empty to "
                               "save straight into the folder above.");
+}
+
+// Empty when `folder` (as normalizeFolder leaves it) can be saved into; else what is wrong with it. The app joins the
+// folder with '/' and creates it, so a relative path would land wherever Blink was started from.
+QString folderError(const QString &folder)
+{
+    return QDir::isAbsolutePath(folder) ? QString() : SettingsDialog::tr("The folder must be an absolute path, such as /home/me/Shots.");
 }
 
 template<typename T>
@@ -462,10 +471,10 @@ Settings SettingsDialog::formSettings() const
     s.windowShadow = windowShadow_->isChecked();
     s.magnifier = magnifier_->isChecked();
     s.saveScreenshots = saveScreenshots_->isChecked();
-    s.screenshotFolder = screenshotFolder_->text();
+    s.screenshotFolder = Settings::normalizeFolder(screenshotFolder_->text(), QStandardPaths::PicturesLocation);
     s.screenshotSubfolder = screenshotSubfolder_.edit->text().trimmed();
 
-    s.recordingFolder = recordingFolder_->text();
+    s.recordingFolder = Settings::normalizeFolder(recordingFolder_->text(), QStandardPaths::MoviesLocation);
     s.recordingSubfolder = recordingSubfolder_.edit->text().trimmed();
     s.fps = fps_->currentData().toInt();
     s.quality = currentValue<Quality>(quality_);
@@ -492,9 +501,11 @@ Settings SettingsDialog::formSettings() const
 
 void SettingsDialog::updateApply()
 {
-    const bool valid = screenshotSubfolder_.error.isEmpty() && recordingSubfolder_.error.isEmpty() && path_.error.isEmpty();
+    const Settings form = formSettings();
+    const bool valid = screenshotSubfolder_.error.isEmpty() && recordingSubfolder_.error.isEmpty() && path_.error.isEmpty()
+                    && folderError(form.screenshotFolder).isEmpty() && folderError(form.recordingFolder).isEmpty();
     ok_->setEnabled(valid);
-    apply_->setEnabled(valid && !same(formSettings(), applied_));
+    apply_->setEnabled(valid && !same(form, applied_));
 }
 
 void SettingsDialog::apply()
@@ -528,9 +539,18 @@ void SettingsDialog::updateExample(PatternField &field)
     field.example->setForegroundRole(QPalette::PlaceholderText);
     QString example;
     if (field.folder) {
+        const QString folder = Settings::normalizeFolder(
+            field.folder->text(), &field == &screenshotSubfolder_ ? QStandardPaths::PicturesLocation : QStandardPaths::MoviesLocation);
+        if (const QString error = folderError(folder); !error.isEmpty()) {
+            field.icon->setPixmap(smallIcon(u"emblem-error"_s));
+            field.icon->show();
+            field.example->setForegroundRole(QPalette::WindowText);
+            field.example->setText(error);
+            return;
+        }
         // Where a capture taken now would be saved.
-        const QString folder = field.expanded.isEmpty() ? field.folder->text() : field.folder->text() + u'/' + field.expanded;
-        example = folder + u'/' + captureName(QDateTime::currentDateTime()) + u'.' + field.extension;
+        const QString saveFolder = field.expanded.isEmpty() ? folder : folder + u'/' + field.expanded;
+        example = saveFolder + u'/' + captureName(QDateTime::currentDateTime()) + u'.' + field.extension;
     } else {
         const S3Config s3 = formSettings().s3;
         // Without an endpoint and bucket there is only the key to show.
