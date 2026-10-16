@@ -1,10 +1,11 @@
 #pragma once
 
-// Encodes the captured frames to H.264 on its own thread. The encoder is picked when the first frame arrives (its
-// size and pixel format are known then): NVENC takes the RGB frames as they are, VA-API gets them through a
-// hwupload/scale_vaapi filter graph, the software encoders through swscale.
+// Encodes the captured frames to H.264 on its own thread. The encoder is picked as soon as PipeWire negotiated the
+// stream (FrameQueue::setFormat), before the first frame: NVENC takes the RGB frames as they are, VA-API gets them
+// through a hwupload/scale_vaapi filter graph, the software encoders through swscale.
 
 #include "ffmpeg.h"
+#include "framequeue.h"
 #include "recorderprotocol.h"
 
 #include <cstdint>
@@ -14,7 +15,6 @@
 namespace blink::recorder {
 
 class Events;
-class FrameQueue;
 class Muxer;
 
 class VideoEncoder {
@@ -41,13 +41,13 @@ private:
     enum class Kind { Nvenc, Vaapi, X264, OpenH264 };
 
     void run();
-    bool open(const AVFrame *frame);
-    std::string tryOpen(Kind kind, const AVFrame *frame);
-    std::string openCodec(const char *name, const AVFrame *frame, AVPixelFormat format, AVDictionary **options,
+    bool open(const FrameQueue::Format &input);
+    std::string tryOpen(Kind kind, const FrameQueue::Format &input);
+    std::string openCodec(const char *name, const FrameQueue::Format &input, AVPixelFormat format, AVDictionary **options,
                           AVBufferRef *device = nullptr);
-    std::string openVaapi(const AVFrame *frame);
-    std::string openVaapiDevice(const char *device, const AVFrame *frame);
-    std::string openSoftware(const char *name, const AVFrame *frame);
+    std::string openVaapi(const FrameQueue::Format &input);
+    std::string openVaapiDevice(const char *device, const FrameQueue::Format &input);
+    std::string openSoftware(const char *name, const FrameQueue::Format &input);
     void reset();
     bool encode(AVFrame *frame);
     bool send(AVFrame *frame);

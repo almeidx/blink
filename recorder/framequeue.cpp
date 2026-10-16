@@ -14,6 +14,15 @@ FrameQueue::~FrameQueue()
         av_frame_free(&frame);
 }
 
+void FrameQueue::setFormat(const Format &format)
+{
+    {
+        std::lock_guard lock(mutex_);
+        format_ = format;
+    }
+    wakeup_.notify_one();
+}
+
 AVFrame *FrameQueue::slot()
 {
     std::lock_guard lock(mutex_);
@@ -33,12 +42,17 @@ void FrameQueue::push()
     wakeup_.notify_one();
 }
 
-FrameQueue::Pop FrameQueue::pop(AVFrame *frame)
+FrameQueue::Pop FrameQueue::pop(AVFrame *frame, Format &format)
 {
     std::unique_lock lock(mutex_);
-    wakeup_.wait(lock, [this] { return count_ > 0 || finished_ || cancelled_; });
+    wakeup_.wait(lock, [this] { return format_.has_value() || count_ > 0 || finished_ || cancelled_; });
     if (cancelled_)
         return Pop::Cancelled;
+    if (format_.has_value()) {
+        format = *format_;
+        format_.reset();
+        return Pop::Format;
+    }
     if (count_ == 0)
         return Pop::Finished;
     av_frame_move_ref(frame, slots_[head_]);

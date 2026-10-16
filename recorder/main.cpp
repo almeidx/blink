@@ -248,7 +248,7 @@ int record(const Arguments &arguments, int signals)
     }
     if (error = muxer.finish(); !error.empty())
         return fail(error);
-    // Diagnostics only: a few frames go while the encoder opens.
+    // Diagnostics only: frames go when the encoder cannot keep up, or is still opening when the first frames arrive.
     if (const uint64_t dropped = frames.dropped(); dropped > 0)
         std::fputs(("blink-recorder: the encoder fell behind, " + std::to_string(dropped) + " frames dropped\n").c_str(), stderr);
     Events::emit(kEvFinished);

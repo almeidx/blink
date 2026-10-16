@@ -116,23 +116,37 @@ void VideoEncoder::run()
             cuda_.reset(cuda);
     }
     for (;;) {
-        const FrameQueue::Pop result = queue_.pop(frame.get());
+        FrameQueue::Format format;
+        const FrameQueue::Pop result = queue_.pop(frame.get(), format);
         if (result == FrameQueue::Pop::Cancelled)
             return;
         if (result == FrameQueue::Pop::Finished)
             break;
-        if (!codec_) {
-            if (!open(frame.get()))
+        if (result == FrameQueue::Pop::Format) {
+            // Only the first negotiation opens the encoder; frames of a later one are converted in encode().
+            if (!codec_ && !open(format))
                 return;
+            continue;
+        }
+        if (!muxer_.started()) {
+            // Capture announces the format before any frame (Capture::onVideoParam).
+            if (!codec_) {
+                events_.fail("the screen cast sent a frame before its format");
+                return;
+            }
+            // The header waits for the first frame: audio starts with it (Mixer::start) and main() reads
+            // muxer.started() as "a frame arrived".
+            if (std::string message = muxer_.start(); !message.empty()) {
+                events_.fail(message);
+                return;
+            }
             t0_ = frame->pts;
-            inputWidth_ = frame->width;
-            inputHeight_ = frame->height;
-            inputFormat_ = static_cast<AVPixelFormat>(frame->format);
         }
         if (!encode(frame.get()))
             return;
     }
-    if (!codec_)
+    // Stopped before the first frame: no header was written and the encoder never saw a frame.
+    if (!muxer_.started())
         return;
     // KWin only sends damaged frames: without this, a still screen at the end would be cut from the video.
     if ((stopNs_ - t0_) / kNsPerTick - lastPts_ >= kTimeBase.den / options_.fps && last_->buf[0]) {
@@ -152,7 +166,7 @@ void VideoEncoder::run()
     drain();
 }
 
-bool VideoEncoder::open(const AVFrame *frame)
+bool VideoEncoder::open(const FrameQueue::Format &input)
 {
     std::span<const Kind> kinds;
     static constexpr std::array kCandidates{Kind::Nvenc, Kind::Vaapi, Kind::X264, Kind::OpenH264};
@@ -172,7 +186,7 @@ bool VideoEncoder::open(const AVFrame *frame)
     }
     std::string errors;
     for (const Kind kind : kinds) {
-        const std::string error = tryOpen(kind, frame);
+        const std::string error = tryOpen(kind, input);
         if (error.empty()) {
             // Created eagerly in run() for NVENC; another encoder won, so give the GPU memory back.
             if (kind != Kind::Nvenc)
@@ -181,10 +195,9 @@ bool VideoEncoder::open(const AVFrame *frame)
                 events_.fail(message);
                 return false;
             }
-            if (std::string message = muxer_.start(); !message.empty()) {
-                events_.fail(message);
-                return false;
-            }
+            inputWidth_ = input.width;
+            inputHeight_ = input.height;
+            inputFormat_ = input.pixelFormat;
             Events::emit(kEvEncoder,
                          std::string(codec_->codec->name) + ' ' + std::to_string(codec_->width) + 'x' + std::to_string(codec_->height));
             return true;
@@ -197,7 +210,7 @@ bool VideoEncoder::open(const AVFrame *frame)
     return false;
 }
 
-std::string VideoEncoder::tryOpen(Kind kind, const AVFrame *frame)
+std::string VideoEncoder::tryOpen(Kind kind, const FrameQueue::Format &input)
 {
     const int fps = options_.fps;
     AVDictionary *options = nullptr;
@@ -212,31 +225,31 @@ std::string VideoEncoder::tryOpen(Kind kind, const AVFrame *frame)
         av_dict_set_int(&options, "bf", 0, 0);
         // Without it the I-frames encode() asks for are intra but not IDR, which the MP4 muxer cannot seek to.
         av_dict_set_int(&options, "forced-idr", 1, 0);
-        return openCodec("h264_nvenc", frame, static_cast<AVPixelFormat>(frame->format), &options, cuda_.get());
+        return openCodec("h264_nvenc", input, input.pixelFormat, &options, cuda_.get());
     case Kind::Vaapi:
-        return openVaapi(frame);
+        return openVaapi(input);
     case Kind::X264:
         av_dict_set(&options, "preset", "veryfast", 0);
         av_dict_set_int(&options, "crf", pick(options_.quality, 28, 23, 18), 0);
         av_dict_set_int(&options, "forced-idr", 1, 0);
-        if (std::string error = openCodec("libx264", frame, AV_PIX_FMT_YUV420P, &options); !error.empty())
+        if (std::string error = openCodec("libx264", input, AV_PIX_FMT_YUV420P, &options); !error.empty())
             return error;
-        return openSoftware("libx264", frame);
+        return openSoftware("libx264", input);
     case Kind::OpenH264: {
         const double bitsPerPixel = pick(options_.quality, 6, 10, 15) / 100.0;
         av_dict_set(&options, "rc_mode", "bitrate", 0);
         // In double: width * height * fps overflows int at 4K from 259 fps (and at 8K from 65).
-        const double bitRate = static_cast<double>(frame->width) * frame->height * fps * bitsPerPixel;
+        const double bitRate = static_cast<double>(input.width) * input.height * fps * bitsPerPixel;
         av_dict_set_int(&options, "b", static_cast<int64_t>(bitRate), 0);
-        if (std::string error = openCodec("libopenh264", frame, AV_PIX_FMT_YUV420P, &options); !error.empty())
+        if (std::string error = openCodec("libopenh264", input, AV_PIX_FMT_YUV420P, &options); !error.empty())
             return error;
-        return openSoftware("libopenh264", frame);
+        return openSoftware("libopenh264", input);
     }
     }
     return {};
 }
 
-std::string VideoEncoder::openCodec(const char *name, const AVFrame *frame, AVPixelFormat format, AVDictionary **options,
+std::string VideoEncoder::openCodec(const char *name, const FrameQueue::Format &input, AVPixelFormat format, AVDictionary **options,
                                     AVBufferRef *device)
 {
     const std::string prefix = std::string(name) + ": ";
@@ -260,8 +273,8 @@ std::string VideoEncoder::openCodec(const char *name, const AVFrame *frame, AVPi
             return prefix + "does not take " + av_get_pix_fmt_name(format);
         }
     }
-    codec_->width = frame->width;
-    codec_->height = frame->height;
+    codec_->width = input.width;
+    codec_->height = input.height;
     codec_->pix_fmt = format;
     codec_->time_base = kTimeBase;
     codec_->framerate = {options_.fps, 1};
@@ -300,14 +313,14 @@ std::string VideoEncoder::openCodec(const char *name, const AVFrame *frame, AVPi
     return {};
 }
 
-std::string VideoEncoder::openVaapi(const AVFrame *frame)
+std::string VideoEncoder::openVaapi(const FrameQueue::Format &input)
 {
-    std::string errors = openVaapiDevice(nullptr, frame);
+    std::string errors = openVaapiDevice(nullptr, input);
     if (errors.empty())
         return {};
     for (const std::string &node : renderNodes()) {
         reset();
-        const std::string error = openVaapiDevice(node.c_str(), frame);
+        const std::string error = openVaapiDevice(node.c_str(), input);
         if (error.empty())
             return {};
         errors += "; " + error;
@@ -315,7 +328,7 @@ std::string VideoEncoder::openVaapi(const AVFrame *frame)
     return errors;
 }
 
-std::string VideoEncoder::openVaapiDevice(const char *device, const AVFrame *frame)
+std::string VideoEncoder::openVaapiDevice(const char *device, const FrameQueue::Format &input)
 {
     const std::string prefix = std::string("h264_vaapi on ") + (device ? device : "the default device") + ": ";
     AVBufferRef *created = nullptr;
@@ -328,8 +341,8 @@ std::string VideoEncoder::openVaapiDevice(const char *device, const AVFrame *fra
     if (!graph_)
         return prefix + "out of memory";
     std::array<char, 160> args{};
-    std::snprintf(args.data(), args.size(), "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=1/1", frame->width, frame->height,
-                  frame->format, kTimeBase.num, kTimeBase.den);
+    std::snprintf(args.data(), args.size(), "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=1/1", input.width, input.height,
+                  static_cast<int>(input.pixelFormat), kTimeBase.num, kTimeBase.den);
     error = avfilter_graph_create_filter(&source_, avfilter_get_by_name("buffer"), "in", args.data(), nullptr, graph_.get());
     AVFilterContext *upload = nullptr;
     if (error >= 0) {
@@ -365,22 +378,22 @@ std::string VideoEncoder::openVaapiDevice(const char *device, const AVFrame *fra
     av_dict_set(&options, "rc_mode", "CQP", 0);
     av_dict_set_int(&options, "qp", pick(options_.quality, 30, 25, 20), 0);
     av_dict_set(&options, "profile", "high", 0);
-    if (std::string message = openCodec("h264_vaapi", frame, AV_PIX_FMT_VAAPI, &options); !message.empty())
+    if (std::string message = openCodec("h264_vaapi", input, AV_PIX_FMT_VAAPI, &options); !message.empty())
         return prefix + message;
     return {};
 }
 
-std::string VideoEncoder::openSoftware(const char *name, const AVFrame *frame)
+std::string VideoEncoder::openSoftware(const char *name, const FrameQueue::Format &input)
 {
     const std::string prefix = std::string(name) + ": ";
     sws_.reset(sws_alloc_context());
     if (!sws_)
         return prefix + "out of memory";
-    av_opt_set_int(sws_.get(), "srcw", frame->width, 0);
-    av_opt_set_int(sws_.get(), "srch", frame->height, 0);
-    av_opt_set_int(sws_.get(), "src_format", frame->format, 0);
-    av_opt_set_int(sws_.get(), "dstw", frame->width, 0);
-    av_opt_set_int(sws_.get(), "dsth", frame->height, 0);
+    av_opt_set_int(sws_.get(), "srcw", input.width, 0);
+    av_opt_set_int(sws_.get(), "srch", input.height, 0);
+    av_opt_set_int(sws_.get(), "src_format", input.pixelFormat, 0);
+    av_opt_set_int(sws_.get(), "dstw", input.width, 0);
+    av_opt_set_int(sws_.get(), "dsth", input.height, 0);
     av_opt_set_int(sws_.get(), "dst_format", AV_PIX_FMT_YUV420P, 0);
     av_opt_set_int(sws_.get(), "sws_flags", SWS_FAST_BILINEAR, 0);
     av_opt_set_int(sws_.get(), "threads", 0, 0); // automatic; sws_scale_frame() slices the conversion across them
@@ -392,7 +405,7 @@ std::string VideoEncoder::openSoftware(const char *name, const AVFrame *frame)
     error = sws_setColorspaceDetails(sws_.get(), bt709, 1, bt709, 0, 0, 1 << 16, 1 << 16);
     if (error < 0)
         return prefix + "swscale cannot convert to BT.709";
-    if (!pool_.init(frame->width, frame->height, AV_PIX_FMT_YUV420P))
+    if (!pool_.init(input.width, input.height, AV_PIX_FMT_YUV420P))
         return prefix + "out of memory";
     return {};
 }

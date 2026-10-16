@@ -381,6 +381,9 @@ void Capture::onVideoParam(void *data, uint32_t id, const spa_pod *param)
         self->events_.fail("out of memory");
         return;
     }
+    // Lets the encoder open while the stream starts instead of on its first frame, while later ones would be dropped.
+    // A renegotiation announces again; the encoder keeps its first format and converts (VideoEncoder::encode).
+    self->frames_.setFormat({width, height, pixelFormat});
 
     std::array<uint8_t, 1024> buffer{};
     spa_pod_builder b{};
