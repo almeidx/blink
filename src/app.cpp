@@ -423,9 +423,14 @@ void App::screenshotDone(const QByteArray &png, const CaptureInfo &info, const Q
                          const QImage &thumbnail)
 {
     pendingFiles_.remove(path); // written now, or failed: the disk is the truth again
-    if (!saveError.isEmpty())
-        notifier_->error(tr("Could not save the screenshot"), saveError);
-    else if (library_ && !path.isEmpty())
+    if (!saveError.isEmpty()) {
+        // One notification, not an error followed by "copied" with an "Open" action on a file that does not exist.
+        notifier_->error(tr("Could not save the screenshot"), tr("%1 The screenshot is still on the clipboard.").arg(saveError));
+        if (settings_.uploadScreenshots)
+            upload(png, {}, info, u"image/png"_s);
+        return;
+    }
+    if (library_ && !path.isEmpty())
         library_->rescan();
     if (settings_.uploadScreenshots) {
         upload(png, {}, info, u"image/png"_s);
