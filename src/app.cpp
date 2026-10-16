@@ -32,6 +32,7 @@
 #include <QPromise>
 #include <QSaveFile>
 #include <QScreen>
+#include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
@@ -56,12 +57,12 @@ QIcon appIcon()
     return QIcon::fromTheme(u"blink"_s, QIcon(u":/icons/hicolor/scalable/apps/blink.svg"_s));
 }
 
-// <folder>/<name>.<extension>, numbered when that exists.
-QString newFile(const QString &folder, const QString &name, const QString &extension)
+// <folder>/<name>.<extension>, numbered when that exists on disk or is in `pending` (chosen, not written yet).
+QString newFile(const QString &folder, const QString &name, const QString &extension, const QSet<QString> &pending)
 {
     const QString stem = folder + u'/' + name;
     QString path = stem + u'.' + extension;
-    for (int n = 2; QFileInfo::exists(path); ++n)
+    for (int n = 2; pending.contains(path) || QFileInfo::exists(path); ++n)
         path = stem + u'_' + QString::number(n) + u'.' + extension;
     return path;
 }
@@ -390,7 +391,8 @@ void App::deliverScreenshot(const QImage &image, const QString &app)
         QString error;
         const QString folder = captureFolder(settings_.screenshotFolder, settings_.screenshotSubfolder, info, &error);
         if (error.isEmpty()) {
-            path = newFile(folder, info.fileName, info.extension);
+            path = newFile(folder, info.fileName, info.extension, pendingFiles_);
+            pendingFiles_.insert(path);
             info.fileName = QFileInfo(path).completeBaseName(); // numbered when the name was taken
         } else {
             notifier_->error(tr("Could not save the screenshot"), tr("The subfolder in the settings is invalid. %1").arg(error));
@@ -420,6 +422,7 @@ void App::deliverScreenshot(const QImage &image, const QString &app)
 void App::screenshotDone(const QByteArray &png, const CaptureInfo &info, const QString &path, const QString &saveError,
                          const QImage &thumbnail)
 {
+    pendingFiles_.remove(path); // written now, or failed: the disk is the truth again
     if (!saveError.isEmpty())
         notifier_->error(tr("Could not save the screenshot"), saveError);
     else if (library_ && !path.isEmpty())
@@ -443,7 +446,7 @@ void App::startRecording(const QRect &region, qreal scale, const QString &app)
         return;
     }
     Recording::Options options;
-    options.output = newFile(folder, info.fileName, info.extension);
+    options.output = newFile(folder, info.fileName, info.extension, pendingFiles_);
     options.fps = settings_.fps;
     options.quality = settings_.quality;
     options.encoder = settings_.encoder;

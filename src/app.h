@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QRectF>
+#include <QSet>
 #include <QTimer>
 
 #include <memory>
@@ -88,6 +89,8 @@ private:
     QSystemTrayIcon *tray_ = nullptr;
 
     bool busy_ = false; // capturing or selecting: further capture requests are ignored
+    // Paths handed to the encoder but not written yet: a second capture in the same second must not reuse them.
+    QSet<QString> pendingFiles_;
     QElapsedTimer captureTimer_;
     QPointer<RegionSelector> selector_;
     QList<WindowList::Window> knownWindows_;
