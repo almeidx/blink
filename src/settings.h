@@ -18,6 +18,8 @@ struct S3Config {
     bool publicRead = false; // sends x-amz-acl: public-read
 
     bool isComplete() const; // endpoint, region, bucket and both keys are set
+
+    bool operator==(const S3Config &) const = default;
 };
 
 enum class Quality { Low, Medium, High };
@@ -59,6 +61,8 @@ struct Settings {
     static Settings load();
     // Also restricts the config file to its owner, since it holds the S3 secret key.
     void save() const;
+
+    bool operator==(const Settings &) const = default;
 };
 
 } // namespace blink

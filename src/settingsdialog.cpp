@@ -26,7 +26,6 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -34,25 +33,6 @@ namespace blink {
 namespace {
 
 using namespace Qt::StringLiterals;
-
-auto fields(const S3Config &c)
-{
-    return std::tie(c.endpoint, c.region, c.bucket, c.accessKey, c.secretKey, c.path, c.publicUrl, c.pathStyle, c.publicRead);
-}
-
-auto fields(const Settings &s)
-{
-    return std::tuple_cat(std::tie(s.startAtLogin, s.notifications, s.captureCursor, s.windowDecorations, s.windowShadow, s.magnifier,
-                                   s.saveScreenshots, s.screenshotFolder, s.screenshotSubfolder, s.recordingFolder, s.recordingSubfolder,
-                                   s.fps, s.quality, s.encoder, s.recordCursor, s.systemAudio, s.microphone, s.uploadScreenshots,
-                                   s.uploadRecordings, s.copyUrl),
-                          fields(s.s3));
-}
-
-bool same(const Settings &a, const Settings &b)
-{
-    return fields(a) == fields(b);
-}
 
 QCheckBox *checkBox(const QString &text, bool checked)
 {
@@ -505,13 +485,13 @@ void SettingsDialog::updateApply()
     const bool valid = screenshotSubfolder_.error.isEmpty() && recordingSubfolder_.error.isEmpty() && path_.error.isEmpty()
                     && folderError(form.screenshotFolder).isEmpty() && folderError(form.recordingFolder).isEmpty();
     ok_->setEnabled(valid);
-    apply_->setEnabled(valid && !same(form, applied_));
+    apply_->setEnabled(valid && form != applied_);
 }
 
 void SettingsDialog::apply()
 {
     Settings settings = formSettings();
-    if (same(settings, applied_))
+    if (settings == applied_)
         return;
     applied_ = std::move(settings);
     apply_->setEnabled(false);
