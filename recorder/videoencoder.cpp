@@ -284,6 +284,16 @@ std::string VideoEncoder::openCodec(const char *name, const AVFrame *frame, AVPi
     if (device)
         codec_->hw_device_ctx = av_buffer_ref(device);
     const int error = avcodec_open2(codec_.get(), codec, options);
+    // avcodec_open2() leaves what the encoder did not take in the dictionary: a misspelt or unsupported option would
+    // otherwise change nothing silently. stderr only (a warning event would notify the user), like main()'s dropped frames.
+    if (error >= 0 && *options) {
+        std::string ignored;
+        for (const AVDictionaryEntry *entry = av_dict_iterate(*options, nullptr); entry; entry = av_dict_iterate(*options, entry)) {
+            ignored += ' ';
+            ignored += entry->key;
+        }
+        std::fputs(("blink-recorder: " + std::string(name) + " ignored options:" + ignored + '\n').c_str(), stderr);
+    }
     av_dict_free(options);
     if (error < 0)
         return prefix + avError(error);
