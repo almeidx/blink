@@ -8,6 +8,7 @@
 #include <QDBusUnixFileDescriptor>
 #include <QPointer>
 #include <QThreadPool>
+#include <QtNumeric>
 
 #include <algorithm>
 #include <array>
@@ -77,6 +78,17 @@ QImage readImage(int fd, const QVariantMap &results, QString *error)
         return {};
     }
 
+    // Rows shorter than the pixels they hold would have the read below write past the buffer, and a stride * height
+    // that overflows would allocate too little.
+    const qsizetype minStride = (static_cast<qsizetype>(width) * QImage::toPixelFormat(static_cast<QImage::Format>(format)).bitsPerPixel()
+                                 + 7)
+                              / 8;
+    qsizetype size = 0;
+    if (stride < minStride || qMulOverflow(stride, static_cast<qsizetype>(height), &size)) {
+        *error = KWinScreenshot::tr("KWin sent an invalid image");
+        return {};
+    }
+
     QImage image(width, height, static_cast<QImage::Format>(format));
     if (image.isNull()) {
         *error = KWinScreenshot::tr("Out of memory");
@@ -84,14 +96,20 @@ QImage readImage(int fd, const QVariantMap &results, QString *error)
     }
     if (image.bytesPerLine() != stride) {
         // KWin's stride is normally QImage's own; when it isn't, wrap its layout rather than copying row by row.
-        auto *buffer = static_cast<uchar *>(std::malloc(static_cast<size_t>(stride * height)));
+        auto *buffer = static_cast<uchar *>(std::malloc(static_cast<size_t>(size)));
         if (!buffer) {
             *error = KWinScreenshot::tr("Out of memory");
             return {};
         }
         image = QImage(buffer, width, height, stride, static_cast<QImage::Format>(format), std::free, buffer);
+        if (image.isNull()) {
+            // QImage takes ownership only of a buffer it accepts.
+            std::free(buffer);
+            *error = KWinScreenshot::tr("KWin sent an invalid image");
+            return {};
+        }
     }
-    if (!readFully(fd, image.bits(), stride * height, error))
+    if (!readFully(fd, image.bits(), size, error))
         return {};
     image.setDevicePixelRatio(results.value(u"scale"_s, 1.0).toDouble());
     return image;
