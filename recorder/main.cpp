@@ -243,8 +243,13 @@ int record(const Arguments &arguments, int signals)
     }
     if (events.failed(error))
         return fail(error);
-    if (!muxer.started())
-        return fail("no frames from the compositor");
+    if (!muxer.started()) {
+        // Stopped before the first frame (a quick start/stop): nothing was lost, so it is an abort, not a failure.
+        // The threads are joined above, so the muxer is the only thing left to drop.
+        muxer.discard();
+        Events::emit(kEvAborted);
+        return 0;
+    }
     if (error = muxer.finish(); !error.empty())
         return fail(error);
     // Diagnostics only: a few frames go while the encoder opens.

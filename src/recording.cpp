@@ -171,6 +171,9 @@ void Recording::readEvents()
             Q_EMIT warning(text);
         } else if (event == latin1(recorder::kEvError)) {
             error_ = text;
+        } else if (event == latin1(recorder::kEvAborted)) {
+            // Also sent for a stop before the first frame: no file exists, so it must end like abort(), not finished().
+            aborting_ = true;
         }
     }
 }

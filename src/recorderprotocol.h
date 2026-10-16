@@ -47,6 +47,6 @@ inline constexpr std::string_view kEvRecording = "recording"; // the first frame
 inline constexpr std::string_view kEvWarning = "warning";     // <text>; recording goes on
 inline constexpr std::string_view kEvError = "error";         // <text>; exits with status 1
 inline constexpr std::string_view kEvFinished = "finished";   // the file is complete; exits with status 0
-inline constexpr std::string_view kEvAborted = "aborted";     // the file was deleted; exits with status 0
+inline constexpr std::string_view kEvAborted = "aborted";     // file deleted (abort, or stop before the first frame); exits with status 0
 
 } // namespace blink::recorder
