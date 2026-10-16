@@ -99,11 +99,12 @@ jobs:
       - name: Update CHANGELOG.md
         run: |
           if [ -f CHANGELOG.md ]; then
-            {
-              head -n 4 CHANGELOG.md
-              cat new_section.txt
-              tail -n +5 CHANGELOG.md
-            } > CHANGELOG.new.md
+            # Insert before the first release section, however long the header is; append if there is none yet.
+            awk '
+              !done && /^## \[/ { while ((getline line < "new_section.txt") > 0) print line; done = 1 }
+              { print }
+              END { if (!done) while ((getline line < "new_section.txt") > 0) print line }
+            ' CHANGELOG.md > CHANGELOG.new.md
             mv CHANGELOG.new.md CHANGELOG.md
           else
             {
