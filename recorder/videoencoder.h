@@ -84,6 +84,7 @@ private:
 
     int64_t t0_ = 0;
     int64_t lastPts_ = -1;
+    int64_t lastKeyPts_ = -1; // pts of the last frame encode() asked to be a keyframe
     int64_t stopNs_ = 0;
     bool recording_ = false;
 

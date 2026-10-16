@@ -26,6 +26,9 @@ namespace {
 
 constexpr AVRational kTimeBase{1, 1'000'000};
 constexpr int64_t kNsPerTick = 1'000'000'000 / kTimeBase.den;
+// KWin only sends damaged frames, so a GOP counted in frames can last minutes on a still screen: seeking needs a
+// keyframe at least this often in video time (2 s).
+constexpr int64_t kKeyframeInterval = 2 * kTimeBase.den;
 
 int pick(Quality quality, int low, int medium, int high)
 {
@@ -204,12 +207,15 @@ std::string VideoEncoder::tryOpen(Kind kind, const AVFrame *frame)
         av_dict_set(&options, "profile", "high", 0);
         // With B-frames NVENC allocates many more input surfaces: ~1 GB more memory at 4K, and more latency.
         av_dict_set_int(&options, "bf", 0, 0);
+        // Without it the I-frames encode() asks for are intra but not IDR, which the MP4 muxer cannot seek to.
+        av_dict_set_int(&options, "forced-idr", 1, 0);
         return openCodec("h264_nvenc", frame, static_cast<AVPixelFormat>(frame->format), &options, cuda_.get());
     case Kind::Vaapi:
         return openVaapi(frame);
     case Kind::X264:
         av_dict_set(&options, "preset", "veryfast", 0);
         av_dict_set_int(&options, "crf", pick(options_.quality, 28, 23, 18), 0);
+        av_dict_set_int(&options, "forced-idr", 1, 0);
         if (std::string error = openCodec("libx264", frame, AV_PIX_FMT_YUV420P, &options); !error.empty())
             return error;
         return openSoftware("libx264", frame);
@@ -254,7 +260,7 @@ std::string VideoEncoder::openCodec(const char *name, const AVFrame *frame, AVPi
     codec_->pix_fmt = format;
     codec_->time_base = kTimeBase;
     codec_->framerate = {options_.fps, 1};
-    codec_->gop_size = 2 * options_.fps;
+    codec_->gop_size = 2 * options_.fps; // upper bound for a busy screen; encode() also forces kKeyframeInterval
     codec_->bit_rate = 0; // the rate control is quality based; libopenh264 gets "b" in the options
     codec_->color_primaries = AVCOL_PRI_BT709;
     codec_->color_trc = AVCOL_TRC_BT709;
@@ -395,6 +401,15 @@ bool VideoEncoder::encode(AVFrame *frame)
     }
     lastPts_ = pts;
     frame->pts = pts;
+    // Set on every frame, not only on keyframes: last_ is encoded again at the stop time and must not keep a stale type.
+    if (lastKeyPts_ < 0 || pts - lastKeyPts_ >= kKeyframeInterval) {
+        frame->pict_type = AV_PICTURE_TYPE_I;
+        frame->flags |= AV_FRAME_FLAG_KEY;
+        lastKeyPts_ = pts;
+    } else {
+        frame->pict_type = AV_PICTURE_TYPE_NONE;
+        frame->flags &= ~AV_FRAME_FLAG_KEY;
+    }
     frame->duration = kTimeBase.den / options_.fps;
     AVFrame *input = frame;
     if (frame->width != inputWidth_ || frame->height != inputHeight_ || frame->format != inputFormat_) {
