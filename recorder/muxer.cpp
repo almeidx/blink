@@ -79,8 +79,12 @@ std::string Muxer::finish()
     std::lock_guard lock(mutex_);
     const int error = av_write_trailer(context_);
     close();
-    if (error < 0)
+    if (error < 0) {
+        // Without the trailer (the moov box) the file cannot be played, and discard() cannot delete it any more
+        // once the context is gone: it is removed here so the library never lists it.
+        unlink(path_.c_str());
         return "cannot finish the file: " + avError(error);
+    }
     return {};
 }
 
