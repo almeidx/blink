@@ -53,11 +53,15 @@ EncoderPreference encoderFromName(const QString &name)
     return recorder::encoderFromName(utf8(name.toLatin1())).value_or(EncoderPreference::Auto);
 }
 
-// Creates the file readable by its owner only, so the secret key is never on disk with wider permissions.
+// Makes the file readable by its owner only, creating it if needed, before the secret key is written to it.
 void createPrivate(const QString &path)
 {
-    if (QFileInfo::exists(path))
+    if (QFileInfo::exists(path)) {
+        // A file from an older Blink or copied in may be wider; narrowing it only after sync() would leave the
+        // secret key readable meanwhile.
+        QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner);
         return;
+    }
     QDir().mkpath(QFileInfo(path).absolutePath());
     const int fd = ::open(QFile::encodeName(path).constData(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600);
     if (fd >= 0)
