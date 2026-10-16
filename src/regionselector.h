@@ -18,11 +18,19 @@ namespace blink {
 
 class SelectionWindow;
 
-// A screen frozen by KWin: its image at native resolution (the device pixel ratio is the screen's scale).
+// A screen frozen by KWin, ready for the overlay: `image` is 32-bit (RGB32, ARGB32 or ARGB32 premultiplied) at native
+// resolution with the screen's scale as its device pixel ratio; `dimmed` is its backdrop. Both come from
+// prepareScreenImage().
 struct ScreenImage {
     QScreen *screen = nullptr;
     QImage image;
+    QImage dimmed;
 };
+
+// The pixel work a frozen screen needs before the overlay can show it: KWin sends screens as RGBX8888, which the
+// overlay cannot blit 1:1, and the backdrop is a full pass over the pixels. Pure and thread-safe, so App runs it on
+// the thread pool while the other screens are still arriving. Keeps the device pixel ratio of `image`.
+void prepareScreenImage(QImage &image, QImage &dimmed);
 
 // ShareX-style region picker. Covers every screen with its frozen image, dimmed: drag to select an area, click
 // to take the window (or desktop) under the pointer, Esc or right click to cancel. A magnifier shows the pixels
@@ -40,7 +48,8 @@ public:
     // Windows to snap to, topmost first, in global logical coordinates. May arrive after show().
     void setWindows(QList<WindowList::Window> windows);
 
-    // The pixels of `region` (global logical coordinates), composed at the highest scale when it spans screens.
+    // The pixels of `region` (global logical coordinates): a read-only view into the frozen screen when one screen
+    // covers it, composed at the highest scale when it spans screens.
     QImage grab(const QRectF &region) const;
     // The highest scale among the screens `region` covers.
     qreal scale(const QRectF &region) const;

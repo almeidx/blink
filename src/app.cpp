@@ -332,6 +332,7 @@ void App::selectRegion(Purpose purpose)
     struct Pending {
         std::vector<ScreenImage> shots;
         qsizetype remaining = 0;
+        qsizetype captured = 0;
         QString error;
     };
     const QList<QScreen *> screens = QGuiApplication::screens();
@@ -340,26 +341,44 @@ void App::selectRegion(Purpose purpose)
     pending->remaining = screens.size();
     for (qsizetype i = 0; i < screens.size(); ++i) {
         pending->shots[i].screen = screens[i];
-        screenshot_->captureScreen(screens[i]->name(), {},
-                                   [this, pending, i, purpose](const QImage &image, const QString &, const QString &error) {
-                                       if (error.isEmpty())
-                                           pending->shots[i].image = image;
-                                       else
-                                           pending->error = error;
-                                       if (--pending->remaining > 0)
-                                           return;
-                                       qCDebug(lcBlink) << "screens captured after" << captureTimer_.elapsed() << "ms";
-                                       const QList<QScreen *> current = QGuiApplication::screens();
-                                       const bool screensChanged = std::ranges::any_of(
-                                           pending->shots, [&](const ScreenImage &shot) { return !current.contains(shot.screen); });
-                                       if (!pending->error.isEmpty() || screensChanged) {
-                                           busy_ = false;
-                                           if (!pending->error.isEmpty())
-                                               notifier_->error(tr("Could not capture the screen"), pending->error);
-                                           return;
-                                       }
-                                       showSelector(std::move(pending->shots), purpose);
-                                   });
+        screenshot_->captureScreen(
+            screens[i]->name(), {}, [this, pending, i, purpose](const QImage &image, const QString &, const QString &error) {
+                if (++pending->captured == std::ssize(pending->shots))
+                    qCDebug(lcBlink) << "screens captured after" << captureTimer_.elapsed() << "ms";
+                // Each screen's conversion and backdrop run on the pool while the others arrive;
+                // the screens' QScreen pointers stay on this thread.
+                QThreadPool::globalInstance()->start([self = QPointer(this), pending, i, purpose, image = image, error = error] mutable {
+                    QImage dimmed;
+                    if (error.isEmpty())
+                        prepareScreenImage(image, dimmed);
+                    QMetaObject::invokeMethod(
+                        qApp,
+                        [self, pending, i, purpose, image = std::move(image), dimmed = std::move(dimmed), error] mutable {
+                            if (!self)
+                                return;
+                            if (error.isEmpty()) {
+                                pending->shots[i].image = std::move(image);
+                                pending->shots[i].dimmed = std::move(dimmed);
+                            } else {
+                                pending->error = error;
+                            }
+                            if (--pending->remaining > 0)
+                                return;
+                            qCDebug(lcBlink) << "screens prepared after" << self->captureTimer_.elapsed() << "ms";
+                            const QList<QScreen *> current = QGuiApplication::screens();
+                            const bool screensChanged = std::ranges::any_of(
+                                pending->shots, [&current](const ScreenImage &shot) { return !current.contains(shot.screen); });
+                            if (!pending->error.isEmpty() || screensChanged) {
+                                self->busy_ = false;
+                                if (!pending->error.isEmpty())
+                                    self->notifier_->error(tr("Could not capture the screen"), pending->error);
+                                return;
+                            }
+                            self->showSelector(std::move(pending->shots), purpose);
+                        },
+                        Qt::QueuedConnection);
+                });
+            });
     }
 }
 

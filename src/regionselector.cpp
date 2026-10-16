@@ -29,9 +29,18 @@ constexpr qreal kMagnifierOffset = 24; // logical distance between the pointer a
 constexpr qreal kLabelPadding = 4;    // logical
 constexpr qreal kHintMargin = 24;     // logical
 
-// The backdrop: the frozen screen at 62.5% brightness, two channels per multiply. A 4K screen is 33 MB and this
-// runs before the overlay can appear, so rows are split across threads.
-QImage dim(const QImage &image)
+QRect alignedDevice(const QRectF &device)
+{
+    const QPoint topLeft(static_cast<int>(std::lround(device.left())), static_cast<int>(std::lround(device.top())));
+    const QPoint bottomRight(static_cast<int>(std::lround(device.right())), static_cast<int>(std::lround(device.bottom())));
+    return QRect(topLeft, bottomRight - QPoint(1, 1));
+}
+
+} // namespace
+
+// The backdrop: the frozen screen at 62.5% brightness, two channels per multiply. A 4K screen is 33 MB and the
+// overlay waits for this, so rows are split across threads.
+static QImage dim(const QImage &image)
 {
     QImage dimmed(image.size(), QImage::Format_RGB32);
     const uchar *src = image.constBits();
@@ -62,14 +71,13 @@ QImage dim(const QImage &image)
     return dimmed;
 }
 
-QRect alignedDevice(const QRectF &device)
+void prepareScreenImage(QImage &image, QImage &dimmed)
 {
-    const QPoint topLeft(static_cast<int>(std::lround(device.left())), static_cast<int>(std::lround(device.top())));
-    const QPoint bottomRight(static_cast<int>(std::lround(device.right())), static_cast<int>(std::lround(device.bottom())));
-    return QRect(topLeft, bottomRight - QPoint(1, 1));
+    if (image.format() != QImage::Format_ARGB32_Premultiplied && image.format() != QImage::Format_RGB32
+        && image.format() != QImage::Format_ARGB32)
+        image.convertTo(QImage::Format_ARGB32_Premultiplied);
+    dimmed = dim(image);
 }
-
-} // namespace
 
 // One overlay per screen: a layer-shell surface above everything, including panels. Paints in the frozen
 // image's own pixels, so the image is copied 1:1 into the backing store and outlines are exact.
@@ -364,11 +372,8 @@ RegionSelector::RegionSelector(std::vector<ScreenImage> screens, Purpose purpose
         screen.geometry = shot.screen->geometry();
         screen.scale = shot.image.devicePixelRatio();
         screen.image = std::move(shot.image);
-        if (screen.image.format() != QImage::Format_ARGB32_Premultiplied && screen.image.format() != QImage::Format_RGB32
-            && screen.image.format() != QImage::Format_ARGB32)
-            screen.image.convertTo(QImage::Format_ARGB32_Premultiplied);
         screen.image.setDevicePixelRatio(1);
-        screen.dimmed = dim(screen.image);
+        screen.dimmed = std::move(shot.dimmed);
         screens_.push_back(std::move(screen));
     }
     for (size_t i = 0; i < screens_.size(); ++i)
@@ -493,9 +498,19 @@ QImage RegionSelector::grab(const QRectF &region) const
         return {};
     if (covered.size() == 1) {
         const Screen &screen = screens_[covered.front()];
-        QImage image = screen.image.copy(toDevice(covered.front(), region) & screen.image.rect());
-        image.setDevicePixelRatio(screen.scale);
-        return image;
+        const QRect rect = toDevice(covered.front(), region) & screen.image.rect();
+        // A view of the frozen pixels rather than a copy: a desktop click grabs the whole 33 MB of a 4K screen, and
+        // the PNG encoder reads it on the pool after this selector is deleted, so a handle to the frozen image keeps
+        // the pixels alive as long as the view. Rows start at x * 4 because prepareScreenImage() made the image
+        // 32-bit. The non-const constructor: setDevicePixelRatio() detaches, and Qt copies read-only data on detach.
+        // Nothing writes through the result (encodePng and scaled() take it const).
+        auto *holder = new QImage(screen.image);
+        auto *bits = const_cast<uchar *>(screen.image.constScanLine(rect.y()) + static_cast<qsizetype>(rect.x()) * 4);
+        QImage view(
+            bits, rect.width(), rect.height(), screen.image.bytesPerLine(), screen.image.format(),
+            [](void *info) { delete static_cast<QImage *>(info); }, holder);
+        view.setDevicePixelRatio(screen.scale);
+        return view;
     }
 
     // Spanning screens: compose at the highest scale; areas no screen covers stay transparent.
