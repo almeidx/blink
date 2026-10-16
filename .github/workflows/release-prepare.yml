@@ -66,7 +66,12 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
           TODAY=$(date +%Y-%m-%d)
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [[ "$VERSION" == *-* ]]; then
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          else
+            # A stable release lists everything since the previous stable release, not only since its last prerelease.
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 --exclude '*-*' 2>/dev/null || true)
+          fi
 
           if [ -n "$PREVIOUS_TAG" ]; then
             echo "Generating changelog from $PREVIOUS_TAG to HEAD"
