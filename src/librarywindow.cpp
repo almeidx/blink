@@ -4,6 +4,10 @@
 #include "librarymodel.h"
 #include "thumbnailer.h"
 
+#include <KCategorizedSortFilterProxyModel>
+#include <KCategorizedView>
+#include <KCategoryDrawer>
+
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
@@ -17,13 +21,13 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
-#include <QListView>
+#include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPromise>
-#include <QSortFilterProxyModel>
+#include <QSettings>
 #include <QStyledItemDelegate>
 #include <QThreadPool>
 #include <QUrl>
@@ -35,10 +39,10 @@
 
 namespace blink {
 
-// A grid that says why it is empty when it is.
-class LibraryView final : public QListView {
+// A grid, in groups when the model is grouped, that says why it is empty when it is.
+class LibraryView final : public KCategorizedView {
 public:
-    using QListView::QListView;
+    using KCategorizedView::KCategorizedView;
 
     void setEmptyText(const QString &text)
     {
@@ -51,7 +55,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override
     {
-        QListView::paintEvent(event);
+        KCategorizedView::paintEvent(event);
         if (emptyText_.isEmpty() || !model() || model()->rowCount() > 0)
             return;
         QPainter painter(viewport());
@@ -71,6 +75,7 @@ constexpr QSize kThumbnail(224, 140); // logical pixels; 16:10, and four to a ro
 constexpr int kPadding = 6;
 constexpr int kPlaceholderIcon = 48;
 constexpr qreal kBadge = 28;
+constexpr auto kGroupingKey = "State/libraryGrouping"_L1; // "none", "day", "month" or "year"
 
 // Tells a recording from a screenshot: a play sign on a dark disc in the thumbnail's bottom left corner.
 void drawPlayBadge(QPainter *painter, const QRectF &thumbnail)
@@ -148,12 +153,62 @@ public:
 
 } // namespace
 
+// The kind filter, and the date groups the view draws a header for. The model is newest first, so the files of a
+// group are always next to each other, as KCategorizedView needs them: no sorting.
+class LibraryProxy final : public KCategorizedSortFilterProxyModel {
+public:
+    using KCategorizedSortFilterProxyModel::KCategorizedSortFilterProxyModel;
+
+    // "day", "month" or "year"; anything else is no groups.
+    void setGrouping(QStringView key)
+    {
+        const Grouping grouping = key == "day"_L1   ? Grouping::Day
+                                : key == "month"_L1 ? Grouping::Month
+                                : key == "year"_L1  ? Grouping::Year
+                                                    : Grouping::None;
+        if (grouping == grouping_)
+            return;
+        grouping_ = grouping;
+        // Both end in layoutChanged(), on which the view builds its groups anew from the new labels.
+        if (const bool grouped = grouping != Grouping::None; grouped != isCategorizedModel())
+            setCategorizedModel(grouped);
+        else
+            invalidate();
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role != CategoryDisplayRole)
+            return KCategorizedSortFilterProxyModel::data(index, role);
+        // The view tells groups apart by these labels, so each names one day, month or year only.
+        const QDate date = KCategorizedSortFilterProxyModel::data(index, LibraryModel::ModifiedRole).toDateTime().date();
+        const QLocale locale;
+        switch (grouping_) {
+        case Grouping::Day:
+            return locale.toString(date, QLocale::LongFormat);
+        case Grouping::Month:
+            return QString(locale.standaloneMonthName(date.month()) + u' ' + QString::number(date.year()));
+        case Grouping::Year:
+            return QString::number(date.year());
+        case Grouping::None:
+            break;
+        }
+        return {};
+    }
+
+private:
+    enum class Grouping { None, Day, Month, Year };
+
+    Grouping grouping_ = Grouping::None;
+};
+
 LibraryWindow::LibraryWindow(const Settings &settings, QWidget *parent)
     : QWidget(parent)
     , thumbnailer_(new Thumbnailer(kThumbnail, this))
     , model_(new LibraryModel(thumbnailer_, this))
-    , filter_(new QSortFilterProxyModel(this))
+    , filter_(new LibraryProxy(this))
     , kind_(new QComboBox)
+    , grouping_(new QComboBox)
     , view_(new LibraryView)
 {
     setAttribute(Qt::WA_DeleteOnClose);
@@ -169,7 +224,19 @@ LibraryWindow::LibraryWindow(const Settings &settings, QWidget *parent)
         filter_->setFilterFixedString(kind_->currentData().toString());
         updateEmptyText();
     });
+    grouping_->addItem(tr("None"), u"none"_s);
+    grouping_->addItem(tr("Day"), u"day"_s);
+    grouping_->addItem(tr("Month"), u"month"_s);
+    grouping_->addItem(tr("Year"), u"year"_s);
+    grouping_->setCurrentIndex(std::max(grouping_->findData(QSettings().value(kGroupingKey).toString()), 0));
+    filter_->setGrouping(grouping_->currentData().toString());
+    connect(grouping_, &QComboBox::currentIndexChanged, this, [this] {
+        const QString key = grouping_->currentData().toString();
+        filter_->setGrouping(key);
+        QSettings().setValue(kGroupingKey, key);
+    });
 
+    view_->setCategoryDrawer(new KCategoryDrawer(view_));
     view_->setModel(filter_);
     view_->setItemDelegate(new LibraryDelegate(view_));
     view_->setViewMode(QListView::IconMode);
@@ -212,6 +279,11 @@ LibraryWindow::LibraryWindow(const Settings &settings, QWidget *parent)
     auto *bar = new QHBoxLayout;
     bar->addWidget(show);
     bar->addWidget(kind_);
+    auto *group = new QLabel(tr("Group by:"));
+    group->setBuddy(grouping_);
+    bar->addSpacing(12);
+    bar->addWidget(group);
+    bar->addWidget(grouping_);
     bar->addStretch();
     auto *layout = new QVBoxLayout(this);
     layout->addLayout(bar);

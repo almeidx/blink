@@ -23,6 +23,7 @@ check_ipo_supported(RESULT BLINK_IPO LANGUAGES CXX)
 find_package(Qt6 6.10 REQUIRED COMPONENTS Widgets DBus Network WaylandClient)
 find_package(KF6GlobalAccel 6.0 REQUIRED)
 find_package(KF6GuiAddons 6.0 REQUIRED)
+find_package(KF6ItemViews 6.0 REQUIRED)
 # 6.6 added Window::setScreen, which recording.cpp and regionselector.cpp use to pin layer surfaces to a screen.
 find_package(LayerShellQt 6.6 REQUIRED)
 # 1.21 added the PipeWire object serial to zkde_screencast_stream_unstable_v1.
@@ -89,7 +90,7 @@ qt6_generate_wayland_protocol_client_sources(blink FILES ${PLASMA_WAYLAND_PROTOC
 qt_add_resources(blink resources PREFIX / BASE data FILES data/windowlist.js data/icons/hicolor/scalable/apps/blink.svg)
 target_link_libraries(blink PRIVATE
     Qt6::Widgets Qt6::DBus Qt6::Network Qt6::WaylandClient
-    KF6::GlobalAccel KF6::GuiAddons LayerShellQt::Interface
+    KF6::GlobalAccel KF6::GuiAddons KF6::ItemViews LayerShellQt::Interface
     PkgConfig::Wayland ZLIB::ZLIB
 )
 target_link_options(blink PRIVATE -Wl,--as-needed)

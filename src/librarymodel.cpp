@@ -134,6 +134,8 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return entry.video ? u"recording"_s : u"screenshot"_s;
     case ThumbnailRole:
         return thumbnailer_->thumbnail(entry);
+    case ModifiedRole:
+        return entry.modified;
     default:
         return {};
     }

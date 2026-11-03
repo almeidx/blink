@@ -60,8 +60,8 @@ The command line has the same actions: `blink --region`, `--fullscreen`, `--wind
 Captures are copied to the clipboard and saved to `~/Pictures/Blink` and `~/Videos/Blink`, in a folder for each month.
 Captures of a window are named after its app, like `Firefox_2026-10-14_13-26-43.png`.
 
-**Library**, in the tray menu, shows the saved screenshots and recordings. Open, copy, drag or move them to the trash
-from there, or upload them when S3 storage is set up.
+**Library**, in the tray menu, shows the saved screenshots and recordings, optionally grouped by day, month or year.
+Open, copy, drag or move them to the trash from there, or upload them when S3 storage is set up.
 
 Settings, including the S3 secret key, are kept in `~/.config/blink/blink.conf`, readable only by you.
 
@@ -97,7 +97,7 @@ Without a random part, a path can repeat, and the new upload replaces the old on
 
 ## Build
 
-Requires Qt 6.10+, KDE Frameworks 6 (KGlobalAccel, KGuiAddons), LayerShellQt 6.6+, plasma-wayland-protocols,
+Requires Qt 6.10+, KDE Frameworks 6 (KGlobalAccel, KGuiAddons, KItemViews), LayerShellQt 6.6+, plasma-wayland-protocols,
 PipeWire 1.0+ (WirePlumber 0.5+), FFmpeg 7.1+, zlib, CMake, Ninja and a C++23 compiler.
 
 ```sh

@@ -6,16 +6,17 @@
 
 class QAction;
 class QComboBox;
-class QSortFilterProxyModel;
 
 namespace blink {
 
 class LibraryModel;
+class LibraryProxy;
 class LibraryView;
 class Thumbnailer;
 
-// The screenshots and recordings in the save folders, as a grid of thumbnails, newest first: open them, copy them,
-// drag them into other apps, upload them or move them to the trash. Closing it frees all it holds.
+// The screenshots and recordings in the save folders, as a grid of thumbnails, newest first and optionally grouped by
+// day, month or year: open them, copy them, drag them into other apps, upload them or move them to the trash. Closing
+// it frees all it holds.
 class LibraryWindow final : public QWidget {
     Q_OBJECT
 
@@ -45,8 +46,9 @@ private:
     bool uploadable_ = false; // S3 storage is set up
     Thumbnailer *thumbnailer_;
     LibraryModel *model_;
-    QSortFilterProxyModel *filter_;
+    LibraryProxy *filter_;
     QComboBox *kind_;
+    QComboBox *grouping_;
     LibraryView *view_;
     QAction *open_;
     QAction *copy_;
