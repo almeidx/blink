@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 # Release version (semver, may carry a -alpha.N/-beta.N/-rc.N suffix). Bumped by
 # .github/scripts/bump-version.sh together with packaging/; project() only takes the numeric part.
-set(BLINK_VERSION 0.1.1-alpha.2)
+set(BLINK_VERSION 1.0.0)
 string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" BLINK_VERSION_NUMERIC "${BLINK_VERSION}")
 # C for the Wayland protocol glue that wayland-scanner generates.
 project(blink VERSION ${BLINK_VERSION_NUMERIC} DESCRIPTION "Screenshots and screen recordings for KDE Plasma" LANGUAGES C CXX)
