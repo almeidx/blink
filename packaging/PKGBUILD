@@ -4,6 +4,7 @@ pkgname=blink-capture
 pkgver=1.0.0
 pkgrel=1
 pkgdesc='Fast screenshots and screen recordings for KDE Plasma'
+url='https://github.com/almeidx/blink'
 arch=('x86_64' 'aarch64')
 license=('Apache-2.0')
 depends=('qt6-base' 'kglobalaccel' 'kguiaddons' 'kitemviews' 'layer-shell-qt>=6.6' 'libpipewire>=1.0' 'ffmpeg' 'zlib' 'hicolor-icon-theme')
