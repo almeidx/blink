@@ -1,7 +1,7 @@
 #include "recording.h"
 
-#include "recorderpath.h"
-#include "recorderprotocol.h"
+#include "colors.h"
+#include "recorderclient.h"
 #include "screencast.h"
 
 #include <LayerShellQt/Window>
@@ -21,13 +21,6 @@ namespace {
 using namespace Qt::StringLiterals;
 
 constexpr int kFrameWidth = 2; // logical
-const QColor kFrameColor(0xda, 0x44, 0x53);
-
-QLatin1StringView latin1(std::string_view text)
-{
-    return {text.data(), static_cast<qsizetype>(text.size())};
-}
-
 // One stdin line per command, as recorderprotocol.h has it.
 void sendCommand(QProcess &process, std::string_view command)
 {
@@ -58,14 +51,14 @@ protected:
     void paintEvent(QPaintEvent *event) override
     {
         Q_UNUSED(event)
-        QPainter(this).fillRect(QRect(QPoint(), size()), kFrameColor);
+        QPainter(this).fillRect(QRect(QPoint(), size()), kRecordingColor);
     }
 };
 
 } // namespace
 
-Recording::Recording(const QRect &region, qreal scale, Options options, QObject *parent)
-    : QObject(parent), region_(region), scale_(scale), options_(std::move(options))
+Recording::Recording(const QRect &region, qreal scale, QString output, const RecordingOptions &options, QObject *parent)
+    : QObject(parent), region_(region), scale_(scale), output_(std::move(output)), options_(options)
 {
     process_.setProcessChannelMode(QProcess::ForwardedErrorChannel);
     connect(&process_, &QProcess::readyReadStandardOutput, this, &Recording::readEvents);
@@ -90,7 +83,7 @@ Recording::~Recording()
 
 void Recording::start()
 {
-    QDir().mkpath(QFileInfo(options_.output).absolutePath());
+    QDir().mkpath(QFileInfo(output_).absolutePath());
     screencast_ = std::make_unique<Screencast>();
     connect(screencast_.get(), &Screencast::ready, this, &Recording::launch);
     connect(screencast_.get(), &Screencast::failed, this, &Recording::fail);
@@ -108,7 +101,7 @@ void Recording::launch(quint64 target, bool isSerial)
     QStringList arguments{latin1(isSerial ? recorder::kOptSerial : recorder::kOptNode),
                           QString::number(target),
                           latin1(recorder::kOptOutput),
-                          options_.output,
+                          output_,
                           latin1(recorder::kOptFps),
                           QString::number(options_.fps),
                           latin1(recorder::kOptQuality),
@@ -145,9 +138,10 @@ void Recording::readEvents()
             Q_EMIT warning(text);
         } else if (event == latin1(recorder::kEvError)) {
             error_ = text;
+        } else if (event == latin1(recorder::kEvFinished)) {
+            reported_ = Reported::Finished;
         } else if (event == latin1(recorder::kEvAborted)) {
-            // Also sent for a stop before the first frame: no file exists, so it must end like abort(), not finished().
-            aborting_ = true;
+            reported_ = Reported::Aborted;
         }
     }
 }
@@ -191,11 +185,13 @@ void Recording::exited(int code, QProcess::ExitStatus status)
         Q_EMIT failed(*failure_);
         return;
     }
-    if (status == QProcess::NormalExit && code == 0) {
-        if (aborting_)
-            Q_EMIT aborted();
-        else
-            Q_EMIT finished(options_.output);
+    if (status == QProcess::NormalExit && code == 0 && reported_ == Reported::Finished) {
+        Q_EMIT finished(output_, videoSize_);
+        return;
+    }
+    // Also the outcome of a stop before the first frame: the recorder made no file.
+    if (status == QProcess::NormalExit && code == 0 && reported_ == Reported::Aborted) {
+        Q_EMIT aborted();
         return;
     }
     Q_EMIT failed(error_.isEmpty() ? u"blink-recorder stopped unexpectedly."_s : error_);

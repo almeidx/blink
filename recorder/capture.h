@@ -5,6 +5,7 @@
 // audio is written into the mixer.
 
 #include "ffmpeg.h"
+#include "mixer.h"
 #include "recorderprotocol.h"
 
 #include <pipewire/pipewire.h>
@@ -20,7 +21,6 @@ namespace blink::recorder {
 
 class Events;
 class FrameQueue;
-class Mixer;
 
 class Capture {
 public:
@@ -92,7 +92,7 @@ private:
     FramePool pool_; // frames at the stream size rounded down to even (H.264 4:2:0)
     bool started_ = false;
 
-    std::array<AudioSource, 2> audio_{};
+    std::array<AudioSource, Mixer::kMaxSources> audio_{};
     int audioSources_ = 0;
 };
 

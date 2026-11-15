@@ -1,7 +1,7 @@
 # Static analysis for blink, same checks as watchpoint (CI runs it with clang-tidy 22, Fedora 44).
-# Run: cmake -S . -B build -G Ninja && cmake --build build && run-clang-tidy -p build -quiet '/(src|recorder)/[^/]*$'
+# Run: cmake -S . -B build -G Ninja && cmake --build build && run-clang-tidy -p build -quiet '/(src|recorder|shared)/[^/]*$'
 # (the build generates the moc and Wayland protocol sources the analysis needs).
-# The regexes match files directly inside src/ and recorder/, so moc and wayland-scanner output under build/ is never analyzed.
+# The regexes match files directly inside src/, recorder/ and shared/, so moc and wayland-scanner output under build/ is never analyzed.
 #
 # Disabled checks and why:
 #  - bugprone-suspicious-stringview-data-usage: false positives on string_view(sv.data(), n)
@@ -44,4 +44,4 @@ Checks: >
   readability-simplify-boolean-expr,
   readability-static-definition-in-anonymous-namespace
 WarningsAsErrors: '*'
-HeaderFilterRegex: '/(src|recorder)/[^/]*$'
+HeaderFilterRegex: '/(src|recorder|shared)/[^/]*$'

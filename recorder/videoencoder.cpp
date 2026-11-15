@@ -1,5 +1,6 @@
 #include "videoencoder.h"
 
+#include "clock.h"
 #include "events.h"
 #include "framequeue.h"
 #include "muxer.h"
@@ -26,7 +27,7 @@ namespace blink::recorder {
 namespace {
 
 constexpr AVRational kTimeBase{1, 1'000'000};
-constexpr int64_t kNsPerTick = 1'000'000'000 / kTimeBase.den;
+constexpr int64_t kNsPerTick = kNsPerSecond / kTimeBase.den;
 // KWin only sends damaged frames, so a GOP counted in frames can last minutes on a still screen: seeking needs a
 // keyframe at least this often in video time (2 s).
 constexpr int64_t kKeyframeInterval = 2 * kTimeBase.den;
@@ -166,7 +167,6 @@ void VideoEncoder::run()
         if (!encode(frame.get()))
             return;
     }
-    // Stopped before the first frame: no header was written and the encoder never saw a frame.
     if (!muxer_.started())
         return;
     // KWin only sends damaged frames: without this, a still screen at the end would be cut from the video.
@@ -214,7 +214,7 @@ bool VideoEncoder::open(const FrameQueue::Format &input)
                 cuda_.reset();
             // The same for run()'s VA-API device; if VA-API won, device_ holds its own reference.
             vaapi_.reset();
-            if (std::string message = muxer_.setParameters(muxer_.videoStream(), codec_.get()); !message.empty()) {
+            if (std::string message = muxer_.setVideoParameters(codec_.get()); !message.empty()) {
                 events_.fail(message);
                 return false;
             }
@@ -328,7 +328,7 @@ std::string VideoEncoder::openCodec(const char *name, const FrameQueue::Format &
             ignored += ' ';
             ignored += entry->key;
         }
-        std::fputs(("blink-recorder: " + std::string(name) + " ignored options:" + ignored + '\n').c_str(), stderr);
+        diagnostic(std::string(name) + " ignored options:" + ignored);
     }
     av_dict_free(options);
     if (error < 0)
@@ -578,7 +578,7 @@ bool VideoEncoder::drain()
             events_.fail("cannot encode video: " + avError(error));
             return false;
         }
-        if (std::string message = muxer_.write(packet_.get(), muxer_.videoStream(), codec_->time_base); !message.empty()) {
+        if (std::string message = muxer_.write(packet_.get(), Muxer::Stream::Video, codec_->time_base); !message.empty()) {
             events_.fail(message);
             return false;
         }

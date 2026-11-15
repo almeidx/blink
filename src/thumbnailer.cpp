@@ -1,14 +1,11 @@
 #include "thumbnailer.h"
 
-#include "recorderpath.h"
-#include "recorderprotocol.h"
+#include "recorderclient.h"
 
 #include <QCryptographicHash>
 #include <QDir>
-#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QImageReader>
-#include <QProcess>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QThread>
@@ -24,7 +21,6 @@ using namespace Qt::StringLiterals;
 
 // Memory for thumbnails already made; those dropped come back from the disk cache.
 constexpr qsizetype kMemoryBytes = 64 << 20;
-constexpr int kVideoTimeoutMs = 10'000;
 // The value of the standard's Software key. A thumbnail Blink made is as large as its directory allows; the recorder
 // refuses anything larger than kThumbnailMaxSize.
 constexpr QLatin1StringView kSoftware = "Blink"_L1;
@@ -88,31 +84,6 @@ QImage imageThumbnail(const QString &path, int size, QSize *original)
     if (image.width() > size || image.height() > size)
         image = image.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     return image;
-}
-
-// The first frame of a video, from blink-recorder --thumbnail.
-QImage videoThumbnail(const QString &path, int size, const std::atomic_bool &stopping)
-{
-    QProcess process;
-    process.setStandardErrorFile(QProcess::nullDevice());
-    process.start(recorderPath(),
-                  {QLatin1StringView(recorder::kOptThumbnail.data(), static_cast<qsizetype>(recorder::kOptThumbnail.size())),
-                   QString::number(size), path},
-                  QIODevice::ReadOnly);
-    QElapsedTimer timer;
-    timer.start();
-    while (!process.waitForFinished(100)) {
-        if (process.state() == QProcess::NotRunning) // it did not start
-            return {};
-        if (stopping || timer.hasExpired(kVideoTimeoutMs)) {
-            process.kill();
-            process.waitForFinished();
-            return {};
-        }
-    }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0)
-        return {};
-    return QImage::fromData(process.readAllStandardOutput(), "PPM");
 }
 
 // As the standard has it: directories 0700, files 0600, written under another name and renamed into place.

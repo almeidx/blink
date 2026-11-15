@@ -1,17 +1,17 @@
 #include "app.h"
 
 #include "appname.h"
+#include "autostart.h"
 #include "clipboard.h"
 #include "kwinscreenshot.h"
 #include "librarywindow.h"
+#include "logging.h"
 #include "notifier.h"
 #include "pathpattern.h"
 #include "pngencoder.h"
 #include "recording.h"
-#include "regionselector.h"
 #include "settingsdialog.h"
-#include "uploader.h"
-#include "windowlist.h"
+#include "threadpool.h"
 
 #include <KGlobalAccel>
 #include <KGlobalShortcutInfo>
@@ -26,21 +26,15 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QImageReader>
-#include <QLoggingCategory>
 #include <QMenu>
 #include <QMimeDatabase>
-#include <QPromise>
 #include <QSaveFile>
-#include <QScreen>
-#include <QSet>
 #include <QSettings>
-#include <QStandardPaths>
 #include <QSystemTrayIcon>
-#include <QThreadPool>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
+#include <functional>
 #include <utility>
 
 namespace blink {
@@ -49,12 +43,11 @@ namespace {
 using namespace Qt::StringLiterals;
 using namespace std::chrono_literals;
 
-// Timings of the capture path: QT_LOGGING_RULES="blink.debug=true".
-Q_LOGGING_CATEGORY(lcBlink, "blink", QtInfoMsg)
-
-QIcon appIcon()
+// A capture taken now of `app` (KWin's name for it; empty when it isn't of one window).
+CaptureInfo newCapture(const QString &app, const QString &extension, QSize size = {})
 {
-    return QIcon::fromTheme(u"blink"_s, QIcon(u":/icons/hicolor/scalable/apps/blink.svg"_s));
+    const QDateTime time = QDateTime::currentDateTime();
+    return {time, captureName(time, appName(app)), extension, size};
 }
 
 // <folder>/<name>.<extension>, numbered when that exists on disk or is in `pending` (chosen, not written yet).
@@ -65,16 +58,6 @@ QString newFile(const QString &folder, const QString &name, const QString &exten
     for (int n = 2; pending.contains(path) || QFileInfo::exists(path); ++n)
         path = stem + u'_' + QString::number(n) + u'.' + extension;
     return path;
-}
-
-// The folder a capture goes in: `folder`, plus the subfolder `pattern` names for the capture. Empty, with `error` set,
-// when the pattern is invalid.
-QString captureFolder(const QString &folder, const QString &pattern, const CaptureInfo &info, QString *error)
-{
-    const QString subfolder = PathPattern::expand(pattern, PathPattern::Target::Subfolder, info, error);
-    if (!error->isEmpty())
-        return {};
-    return subfolder.isEmpty() ? folder : folder + u'/' + subfolder;
 }
 
 QString writeFile(const QString &path, const QByteArray &data)
@@ -94,24 +77,6 @@ QString elapsedText(std::chrono::milliseconds elapsed)
     return seconds >= 3600 ? QString::number(seconds / 3600) + u':' + minutesAndSeconds : minutesAndSeconds;
 }
 
-// An Exec value per the Desktop Entry spec: quoted when needed, then escaped again as a string value.
-QString desktopExec(const QString &program)
-{
-    static const QString reserved = u" \t\n\"'\\><~|&;$*?#()`"_s;
-    if (std::ranges::none_of(program, [](QChar c) { return reserved.contains(c); }))
-        return program;
-    QString quoted = u"\""_s;
-    for (const QChar c : program) {
-        if (c == u'\\')
-            quoted += u"\\\\\\\\"_s;
-        else if (c == u'"' || c == u'`' || c == u'$')
-            quoted += u"\\\\"_s + c;
-        else
-            quoted += c;
-    }
-    return quoted + u'"';
-}
-
 } // namespace
 
 App::App() : screenshot_(new KWinScreenshot(this)), windows_(new WindowList(this)), notifier_(new Notifier(this))
@@ -120,21 +85,21 @@ App::App() : screenshot_(new KWinScreenshot(this)), windows_(new WindowList(this
     settings_ = Settings::load();
     if (firstRun)
         settings_.save();
-    applyAutostart();
+    updateAutostart();
 
     createActions();
     registerShortcuts();
     createTray();
-    QDBusConnection::sessionBus().registerObject(u"/Blink"_s, this, QDBusConnection::ExportScriptableInvokables);
+    QDBusConnection::sessionBus().registerObject(kDBusPath, this, QDBusConnection::ExportScriptableInvokables);
 
     recordingTicker_.setInterval(1s);
     connect(&recordingTicker_, &QTimer::timeout, this, &App::updateTray);
 
     if (firstRun) {
         QString keys;
-        for (QAction *action : {regionAction_, fullscreenAction_, windowAction_, recordAction_}) {
-            if (const QList<QKeySequence> shortcut = KGlobalAccel::self()->shortcut(action); !shortcut.isEmpty())
-                keys += u'\n' + shortcut.first().toString(QKeySequence::NativeText) + u": "_s + action->text();
+        for (const Shortcut &shortcut : shortcuts_) {
+            if (const QList<QKeySequence> current = KGlobalAccel::self()->shortcut(shortcut.action); !current.isEmpty())
+                keys += u'\n' + current.first().toString(QKeySequence::NativeText) + u": "_s + shortcut.action->text();
         }
         notifier_->notify(tr("Blink is in the system tray"), tr("Shortcuts can be changed in System Settings.") + keys);
     }
@@ -144,24 +109,25 @@ App::~App() = default;
 
 void App::createActions()
 {
-    regionAction_ = new QAction(QIcon::fromTheme(u"select-rectangular"_s), tr("Capture Region"), this);
-    regionAction_->setObjectName(u"capture-region"_s);
-    connect(regionAction_, &QAction::triggered, this, &App::captureRegion);
-
-    windowAction_ = new QAction(QIcon::fromTheme(u"window"_s), tr("Capture Active Window"), this);
-    windowAction_->setObjectName(u"capture-window"_s);
-    connect(windowAction_, &QAction::triggered, this, &App::captureWindow);
-
-    fullscreenAction_ = new QAction(QIcon::fromTheme(u"view-fullscreen"_s), tr("Capture Full Screen"), this);
-    fullscreenAction_->setObjectName(u"capture-fullscreen"_s);
-    connect(fullscreenAction_, &QAction::triggered, this, &App::captureFullscreen);
-
-    // The global shortcut's name stays fixed; the menu entry says what a click does now.
-    recordAction_ = new QAction(QIcon::fromTheme(u"media-record"_s), tr("Start or Stop Recording"), this);
-    recordAction_->setObjectName(u"toggle-recording"_s);
-    connect(recordAction_, &QAction::triggered, this, &App::toggleRecording);
+    const auto action = [this](const QString &icon, const QString &text, const QString &name, void (App::*slot)()) {
+        auto *created = new QAction(QIcon::fromTheme(icon), text, this);
+        created->setObjectName(name);
+        connect(created, &QAction::triggered, this, slot);
+        return created;
+    };
+    regionAction_ = action(u"select-rectangular"_s, tr("Capture Region"), u"capture-region"_s, &App::captureRegion);
+    windowAction_ = action(u"window"_s, tr("Capture Active Window"), u"capture-window"_s, &App::captureWindow);
+    fullscreenAction_ = action(u"view-fullscreen"_s, tr("Capture Full Screen"), u"capture-fullscreen"_s, &App::captureFullscreen);
+    recordAction_ = action(u"media-record"_s, tr("Start or Stop Recording"), u"toggle-recording"_s, &App::toggleRecording);
     recordMenuAction_ = new QAction(this);
     connect(recordMenuAction_, &QAction::triggered, this, &App::toggleRecording);
+
+    shortcuts_ = {{
+        {regionAction_, QKeySequence(Qt::Key_Print), regionAction_},
+        {windowAction_, QKeySequence(Qt::META | Qt::Key_Print), windowAction_},
+        {fullscreenAction_, QKeySequence(Qt::SHIFT | Qt::Key_Print), fullscreenAction_},
+        {recordAction_, QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_R), recordMenuAction_},
+    }};
 
     abortAction_ = new QAction(QIcon::fromTheme(u"dialog-cancel"_s), tr("Discard Recording"), this);
     connect(abortAction_, &QAction::triggered, this, [this] {
@@ -172,41 +138,32 @@ void App::createActions()
 
 void App::registerShortcuts()
 {
-    const std::array<std::pair<QAction *, QKeySequence>, 4> shortcuts{{
-        {regionAction_, QKeySequence(Qt::Key_Print)},
-        {fullscreenAction_, QKeySequence(Qt::SHIFT | Qt::Key_Print)},
-        {windowAction_, QKeySequence(Qt::META | Qt::Key_Print)},
-        {recordAction_, QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_R)},
-    }};
-
     // Spectacle holds these keys by default and KGlobalAccel gives a key to one owner only, so take them from
     // it, once: later changes in System Settings are the user's.
     QSettings state;
     if (!state.value(u"State/shortcutsClaimed"_s).toBool()) {
-        for (const auto &[action, key] : shortcuts) {
-            const QList<KGlobalShortcutInfo> owners = KGlobalAccel::globalShortcutsByKey(key);
+        for (const Shortcut &shortcut : shortcuts_) {
+            const QList<KGlobalShortcutInfo> owners = KGlobalAccel::globalShortcutsByKey(shortcut.key);
             if (std::ranges::any_of(
                     owners, [](const KGlobalShortcutInfo &owner) { return owner.componentUniqueName() == "org.kde.spectacle.desktop"_L1; }))
-                KGlobalAccel::stealShortcutSystemwide(key);
+                KGlobalAccel::stealShortcutSystemwide(shortcut.key);
         }
         state.setValue(u"State/shortcutsClaimed"_s, true);
         state.sync();
         QFile::setPermissions(state.fileName(), QFile::ReadOwner | QFile::WriteOwner);
     }
-    for (const auto &[action, key] : shortcuts) {
-        KGlobalAccel::self()->setDefaultShortcut(action, {key});
-        KGlobalAccel::self()->setShortcut(action, {key});
+    for (const Shortcut &shortcut : shortcuts_) {
+        KGlobalAccel::self()->setDefaultShortcut(shortcut.action, {shortcut.key});
+        KGlobalAccel::self()->setShortcut(shortcut.action, {shortcut.key});
+        // Shown only: QAction shortcuts are inert here, since the menu is exported to the panel.
+        shortcut.menuEntry->setShortcut(KGlobalAccel::self()->shortcut(shortcut.action).value(0));
     }
-
-    // Menu entries show the keys; QAction shortcuts are inert here, since the menu is exported to the panel.
-    auto showKeys = [this](QAction *action, const QList<QKeySequence> &keys) {
-        const QKeySequence key = keys.value(0);
-        (action == recordAction_ ? recordMenuAction_ : action)->setShortcut(key);
-    };
-    for (const auto &[action, key] : shortcuts)
-        showKeys(action, KGlobalAccel::self()->shortcut(action));
-    connect(KGlobalAccel::self(), &KGlobalAccel::globalShortcutChanged, this,
-            [showKeys](QAction *action, const QKeySequence &key) { showKeys(action, {key}); });
+    connect(KGlobalAccel::self(), &KGlobalAccel::globalShortcutChanged, this, [this](QAction *action, const QKeySequence &key) {
+        for (const Shortcut &shortcut : shortcuts_) {
+            if (shortcut.action == action)
+                shortcut.menuEntry->setShortcut(key);
+        }
+    });
 }
 
 void App::createTray()
@@ -223,7 +180,7 @@ void App::createTray()
     menu_->addAction(QIcon::fromTheme(u"configure"_s), u"Settings…"_s, this, &App::showSettings);
     menu_->addAction(QIcon::fromTheme(u"application-exit"_s), u"Quit"_s, this, &App::quit);
 
-    tray_ = new QSystemTrayIcon(appIcon(), this);
+    tray_ = new QSystemTrayIcon(QGuiApplication::windowIcon(), this);
     tray_->setContextMenu(menu_.get());
     connect(tray_, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
         if (reason != QSystemTrayIcon::Trigger)
@@ -243,9 +200,9 @@ void App::updateTray()
     recordMenuAction_->setText(recording ? tr("Stop Recording") : tr("Start Recording"));
     recordMenuAction_->setIcon(QIcon::fromTheme(recording ? u"media-playback-stop"_s : u"media-record"_s));
     abortAction_->setVisible(recording);
-    tray_->setIcon(recording ? QIcon::fromTheme(u"media-record"_s, appIcon()) : appIcon());
+    tray_->setIcon(recording ? QIcon::fromTheme(u"media-record"_s, QGuiApplication::windowIcon()) : QGuiApplication::windowIcon());
     if (!recording)
-        tray_->setToolTip(u"Blink"_s);
+        tray_->setToolTip(QGuiApplication::applicationDisplayName());
     else if (quitting_)
         tray_->setToolTip(tr("Blink: finishing the recording…"));
     else if (recordingTimer_.isValid())
@@ -254,17 +211,24 @@ void App::updateTray()
         tray_->setToolTip(tr("Blink: starting to record"));
 }
 
+bool App::beginCapture()
+{
+    if (busy_)
+        return false;
+    busy_ = true;
+    captureTimer_.start();
+    return true;
+}
+
 void App::captureRegion()
 {
-    selectRegion(Purpose::Screenshot);
+    selectRegion(RegionSelector::Purpose::Screenshot);
 }
 
 void App::captureWindow()
 {
-    if (busy_)
+    if (!beginCapture())
         return;
-    busy_ = true;
-    captureTimer_.start();
     const KWinScreenshot::Options options{settings_.captureCursor, settings_.windowDecorations, settings_.windowShadow};
     screenshot_->captureActiveWindow(options, [this](const QImage &image, const QString &app, const QString &error) {
         busy_ = false;
@@ -277,10 +241,8 @@ void App::captureWindow()
 
 void App::captureFullscreen()
 {
-    if (busy_)
+    if (!beginCapture())
         return;
-    busy_ = true;
-    captureTimer_.start();
     screenshot_->captureWorkspace({.cursor = settings_.captureCursor}, [this](const QImage &image, const QString &, const QString &error) {
         busy_ = false;
         if (!error.isEmpty())
@@ -295,7 +257,7 @@ void App::toggleRecording()
     if (recording_)
         recording_->stop();
     else
-        selectRegion(Purpose::Recording);
+        selectRegion(RegionSelector::Purpose::Recording);
 }
 
 void App::quit()
@@ -311,89 +273,33 @@ void App::quit()
     updateTray();
 }
 
-void App::selectRegion(Purpose purpose)
+void App::selectRegion(RegionSelector::Purpose purpose)
 {
-    if (busy_ || (purpose == Purpose::Recording && recording_))
+    if ((purpose == RegionSelector::Purpose::Recording && recording_) || !beginCapture())
         return;
-    busy_ = true;
-    captureTimer_.start();
-
     // Runs while the screens are captured; the selection takes the windows whenever they come.
-    knownWindows_.clear();
-    windowsKnown_ = false;
-    windows_->query([this](const QList<WindowList::Window> &windows) {
-        qCDebug(lcBlink) << windows.size() << "windows after" << captureTimer_.elapsed() << "ms";
-        knownWindows_ = windows;
-        windowsKnown_ = true;
-        if (selector_)
-            selector_->setWindows(windows);
+    const QFuture<QList<WindowList::Window>> windows = windows_->query().then(this, [this](const QList<WindowList::Window> &found) {
+        qCDebug(lcBlink) << found.size() << "windows after" << captureTimer_.elapsed() << "ms";
+        return found;
     });
-
-    struct Pending {
-        std::vector<ScreenImage> shots;
-        qsizetype remaining = 0;
-        qsizetype captured = 0;
-        QString error;
-    };
-    const QList<QScreen *> screens = QGuiApplication::screens();
-    auto pending = std::make_shared<Pending>();
-    pending->shots.resize(screens.size());
-    pending->remaining = screens.size();
-    for (qsizetype i = 0; i < screens.size(); ++i) {
-        pending->shots[i].screen = screens[i];
-        screenshot_->captureScreen(
-            screens[i]->name(), {}, [this, pending, i, purpose](const QImage &image, const QString &, const QString &error) {
-                if (++pending->captured == std::ssize(pending->shots))
-                    qCDebug(lcBlink) << "screens captured after" << captureTimer_.elapsed() << "ms";
-                // Each screen's conversion and backdrop run on the pool while the others arrive;
-                // the screens' QScreen pointers stay on this thread.
-                QThreadPool::globalInstance()->start([self = QPointer(this), pending, i, purpose, image = image, error = error] mutable {
-                    QImage dimmed;
-                    if (error.isEmpty())
-                        prepareScreenImage(image, dimmed);
-                    QMetaObject::invokeMethod(
-                        qApp,
-                        [self, pending, i, purpose, image = std::move(image), dimmed = std::move(dimmed), error] mutable {
-                            if (!self)
-                                return;
-                            if (error.isEmpty()) {
-                                pending->shots[i].image = std::move(image);
-                                pending->shots[i].dimmed = std::move(dimmed);
-                            } else {
-                                pending->error = error;
-                            }
-                            if (--pending->remaining > 0)
-                                return;
-                            qCDebug(lcBlink) << "screens prepared after" << self->captureTimer_.elapsed() << "ms";
-                            const QList<QScreen *> current = QGuiApplication::screens();
-                            const bool screensChanged = std::ranges::any_of(
-                                pending->shots, [&current](const ScreenImage &shot) { return !current.contains(shot.screen); });
-                            if (!pending->error.isEmpty() || screensChanged) {
-                                self->busy_ = false;
-                                if (!pending->error.isEmpty())
-                                    self->notifier_->error(tr("Could not capture the screen"), pending->error);
-                                return;
-                            }
-                            self->showSelector(std::move(pending->shots), purpose);
-                        },
-                        Qt::QueuedConnection);
-                });
-            });
-    }
+    freezeScreens(*screenshot_, this, [this, windows, purpose](std::vector<ScreenImage> screens, const QString &error) {
+        if (screens.empty()) {
+            busy_ = false;
+            if (!error.isEmpty())
+                notifier_->error(tr("Could not capture the screen"), error);
+            return;
+        }
+        showSelector(std::move(screens), windows, purpose);
+    });
 }
 
-void App::showSelector(std::vector<ScreenImage> shots, Purpose purpose)
+void App::showSelector(std::vector<ScreenImage> screens, const QFuture<QList<WindowList::Window>> &windows, RegionSelector::Purpose purpose)
 {
-    auto *selector = new RegionSelector(
-        std::move(shots), purpose == Purpose::Recording ? RegionSelector::Purpose::Recording : RegionSelector::Purpose::Screenshot,
-        settings_.magnifier, this);
-    selector_ = selector;
-    if (windowsKnown_)
-        selector->setWindows(knownWindows_);
+    auto *selector = new RegionSelector(std::move(screens), windows, purpose, settings_.magnifier, this);
     connect(selector, &RegionSelector::selected, this, [this, selector, purpose](const QRectF &region, const QString &app) {
         selector->deleteLater();
         busy_ = false;
-        if (purpose == Purpose::Screenshot) {
+        if (purpose == RegionSelector::Purpose::Screenshot) {
             captureTimer_.start();
             deliverScreenshot(selector->grab(region), app);
         } else {
@@ -413,13 +319,17 @@ void App::deliverScreenshot(const QImage &image, const QString &app)
     if (image.isNull())
         return;
     // On the clipboard before the PNG exists: pasting waits for the encoder rather than the encoder delaying the copy.
-    auto promise = std::make_shared<QPromise<QByteArray>>();
-    promise->start();
-    clipboard::setPng(promise->future());
+    QFuture<QByteArray> png = runInPool([image] {
+        QElapsedTimer timer;
+        timer.start();
+        QByteArray encoded = encodePng(image);
+        qCDebug(lcBlink) << "PNG of" << image.size() << "took" << timer.elapsed() << "ms," << encoded.size() << "bytes";
+        return encoded;
+    });
+    clipboard::setPng(png);
     qCDebug(lcBlink) << "on the clipboard after" << captureTimer_.elapsed() << "ms";
 
-    const QDateTime time = QDateTime::currentDateTime();
-    CaptureInfo info{time, captureName(time, appName(app)), u"png"_s, image.size()};
+    CaptureInfo info = newCapture(app, u"png"_s, image.size());
     QString path;
     if (settings_.saveScreenshots) {
         QString error;
@@ -434,23 +344,17 @@ void App::deliverScreenshot(const QImage &image, const QString &app)
     }
     // A saved file is previewed by Plasma itself; uploads report their link instead.
     const bool thumbnail = settings_.notifications && path.isEmpty() && !settings_.uploadScreenshots;
-    QThreadPool::globalInstance()->start([self = QPointer(this), image, promise, path, info, thumbnail] {
-        QElapsedTimer timer;
-        timer.start();
-        const QByteArray png = encodePng(image);
-        promise->addResult(png);
-        promise->finish();
-        qCDebug(lcBlink) << "PNG of" << image.size() << "took" << timer.elapsed() << "ms," << png.size() << "bytes";
-        const QString saveError = path.isEmpty() ? QString() : writeFile(path, png);
-        const QImage small = thumbnail ? image.scaled(QSize(256, 256), Qt::KeepAspectRatio, Qt::SmoothTransformation) : QImage();
-        QMetaObject::invokeMethod(
-            qApp,
-            [self, png, info, path, saveError, small] {
-                if (self)
-                    self->screenshotDone(png, info, path, saveError, small);
-            },
-            Qt::QueuedConnection);
-    });
+    struct Saved {
+        QByteArray png;
+        QString error;
+        QImage thumbnail;
+    };
+    png.then(QtFuture::Launch::Async,
+             [image, path, thumbnail](const QByteArray &png) {
+                 return Saved{png, path.isEmpty() ? QString() : writeFile(path, png),
+                              thumbnail ? image.scaled(QSize(256, 256), Qt::KeepAspectRatio, Qt::SmoothTransformation) : QImage()};
+             })
+        .then(this, [this, info, path](const Saved &saved) { screenshotDone(saved.png, info, path, saved.error, saved.thumbnail); });
 }
 
 void App::screenshotDone(const QByteArray &png, const CaptureInfo &info, const QString &path, const QString &saveError,
@@ -460,40 +364,29 @@ void App::screenshotDone(const QByteArray &png, const CaptureInfo &info, const Q
     if (!saveError.isEmpty()) {
         // One notification, not an error followed by "copied" with an "Open" action on a file that does not exist.
         notifier_->error(tr("Could not save the screenshot"), tr("%1 The screenshot is still on the clipboard.").arg(saveError));
-        if (settings_.uploadScreenshots)
-            upload(png, {}, info, u"image/png"_s);
-        return;
-    }
-    if (library_ && !path.isEmpty())
+    } else if (library_ && !path.isEmpty()) {
         library_->rescan();
+    }
     if (settings_.uploadScreenshots) {
-        upload(png, {}, info, u"image/png"_s);
+        if (const std::optional<QString> key = uploadKey(info))
+            uploader()->upload(settings_.s3, png, *key, u"image/png"_s, std::bind_front(&App::uploaded, this));
         return;
     }
-    if (settings_.notifications)
+    if (saveError.isEmpty() && settings_.notifications)
         notifier_->notify(tr("Screenshot copied"), path, path.isEmpty() ? QUrl() : QUrl::fromLocalFile(path), thumbnail);
 }
 
 void App::startRecording(const QRect &region, qreal scale, const QString &app)
 {
-    const QDateTime time = QDateTime::currentDateTime();
-    const CaptureInfo info{time, captureName(time, appName(app)), u"mp4"_s, {}};
+    const CaptureInfo info = newCapture(app, u"mp4"_s);
     QString error;
     const QString folder = captureFolder(settings_.recordingFolder, settings_.recordingSubfolder, info, &error);
     if (!error.isEmpty()) {
         notifier_->error(tr("Recording failed"), tr("The subfolder in the settings is invalid. %1").arg(error));
         return;
     }
-    Recording::Options options;
-    options.output = newFile(folder, info.fileName, info.extension, pendingFiles_);
-    options.fps = settings_.fps;
-    options.quality = settings_.quality;
-    options.encoder = settings_.encoder;
-    options.cursor = settings_.recordCursor;
-    options.systemAudio = settings_.systemAudio;
-    options.microphone = settings_.microphone;
-
-    auto *recording = new Recording(region, scale, std::move(options), this);
+    auto *recording = new Recording(region, scale, newFile(folder, info.fileName, info.extension, pendingFiles_), settings_.recording,
+                                    this);
     recording_ = recording;
     recordingTimer_.invalidate();
     connect(recording, &Recording::started, this, [this](const QString &encoder) {
@@ -503,10 +396,9 @@ void App::startRecording(const QRect &region, qreal scale, const QString &app)
         updateTray();
     });
     connect(recording, &Recording::warning, this, [this](const QString &text) { notifier_->error(u"Recording"_s, text); });
-    connect(recording, &Recording::finished, this, [this, recording, time](const QString &path) {
-        const CaptureInfo info{time, QFileInfo(path).completeBaseName(), u"mp4"_s, recording->videoSize()};
+    connect(recording, &Recording::finished, this, [this, info](const QString &path, QSize size) {
         recordingDone();
-        deliverRecording(path, info);
+        deliverRecording(path, {info.time, QFileInfo(path).completeBaseName(), info.extension, size});
     });
     connect(recording, &Recording::aborted, this, &App::recordingDone);
     connect(recording, &Recording::failed, this, [this](const QString &error) {
@@ -536,41 +428,12 @@ void App::deliverRecording(const QString &path, const CaptureInfo &info)
 {
     clipboard::setFiles({path});
     if (settings_.uploadRecordings) {
-        upload({}, path, info, u"video/mp4"_s);
+        if (const std::optional<QString> key = uploadKey(info))
+            uploader()->uploadFile(settings_.s3, path, *key, u"video/mp4"_s, std::bind_front(&App::uploaded, this));
         return;
     }
     if (settings_.notifications)
         notifier_->notify(tr("Recording saved"), path, QUrl::fromLocalFile(path));
-}
-
-void App::upload(const QByteArray &data, const QString &path, const CaptureInfo &info, const QString &contentType)
-{
-    if (!settings_.s3.isComplete()) {
-        notifier_->error(tr("Not uploaded"), tr("Uploads are on, but the S3 storage settings are incomplete."));
-        return;
-    }
-    QString error;
-    const QString key = PathPattern::expand(settings_.s3.path, PathPattern::Target::ObjectKey, info, &error);
-    if (!error.isEmpty()) {
-        notifier_->error(tr("Not uploaded"), tr("The upload path in the settings is invalid. %1").arg(error));
-        return;
-    }
-    if (!uploader_)
-        uploader_ = new Uploader(this);
-    auto done = [this](const Uploader::Result &result) {
-        if (!result.error.isEmpty()) {
-            notifier_->error(tr("Upload failed"), result.error);
-            return;
-        }
-        if (settings_.copyUrl)
-            clipboard::setText(result.url);
-        if (settings_.notifications)
-            notifier_->notify(settings_.copyUrl ? tr("Link copied") : tr("Uploaded"), result.url, QUrl(result.url));
-    };
-    if (path.isEmpty())
-        uploader_->upload(settings_.s3, data, key, contentType, std::move(done));
-    else
-        uploader_->uploadFile(settings_.s3, path, key, contentType, std::move(done));
 }
 
 void App::uploadFile(const QString &path)
@@ -583,7 +446,42 @@ void App::uploadFile(const QString &path)
     info.extension = file.suffix();
     if (type.startsWith("image/"_L1))
         info.size = QImageReader(path).size(); // from the header; videos leave {width} and {height} empty
-    upload({}, path, info, type);
+    if (const std::optional<QString> key = uploadKey(info))
+        uploader()->uploadFile(settings_.s3, path, *key, type, std::bind_front(&App::uploaded, this));
+}
+
+std::optional<QString> App::uploadKey(const CaptureInfo &info)
+{
+    if (!settings_.s3.isComplete()) {
+        notifier_->error(tr("Not uploaded"), tr("Uploads are on, but the S3 storage settings are incomplete."));
+        return std::nullopt;
+    }
+    QString error;
+    QString key = PathPattern::expand(settings_.s3.path, PathPattern::Target::ObjectKey, info, &error);
+    if (!error.isEmpty()) {
+        notifier_->error(tr("Not uploaded"), tr("The upload path in the settings is invalid. %1").arg(error));
+        return std::nullopt;
+    }
+    return key;
+}
+
+Uploader *App::uploader()
+{
+    if (!uploader_)
+        uploader_ = new Uploader(this);
+    return uploader_;
+}
+
+void App::uploaded(const Uploader::Result &result)
+{
+    if (!result.error.isEmpty()) {
+        notifier_->error(tr("Upload failed"), result.error);
+        return;
+    }
+    if (settings_.copyUrl)
+        clipboard::setText(result.url);
+    if (settings_.notifications)
+        notifier_->notify(settings_.copyUrl ? tr("Link copied") : tr("Uploaded"), result.url, QUrl(result.url));
 }
 
 void App::showSettings()
@@ -593,7 +491,10 @@ void App::showSettings()
         dialog_->activateWindow();
         return;
     }
-    auto *dialog = new SettingsDialog(settings_, {regionAction_, windowAction_, fullscreenAction_, recordAction_});
+    QList<QAction *> actions;
+    for (const Shortcut &shortcut : shortcuts_)
+        actions.append(shortcut.action);
+    auto *dialog = new SettingsDialog(settings_, actions);
     dialog_ = dialog;
     connect(dialog, &SettingsDialog::applied, this, &App::applySettings);
     dialog->show();
@@ -616,30 +517,14 @@ void App::applySettings(const Settings &settings)
 {
     settings_ = settings;
     settings_.save();
-    applyAutostart();
+    updateAutostart();
     if (library_)
         library_->setSettings(settings_);
 }
 
-void App::applyAutostart() const
+void App::updateAutostart()
 {
-    // Only the installed binary manages the entry. From a build tree, writing it would make that tree start at every
-    // login, and removing it would undo the installed Blink's setting.
-    if (const QString self = QCoreApplication::applicationFilePath(); self != QStringLiteral(BLINK_INSTALLED_PATH)) {
-        qCDebug(lcBlink) << "autostart entry left alone:" << self << "is not" << BLINK_INSTALLED_PATH;
-        return;
-    }
-    const QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + u"/autostart/blink.desktop"_s;
-    if (!settings_.startAtLogin) {
-        QFile::remove(path);
-        return;
-    }
-    // An existing entry is kept as it is, with any edits made to it since it was written.
-    if (QFileInfo::exists(path))
-        return;
-    const QByteArray entry = "[Desktop Entry]\nType=Application\nName=Blink\nComment=Screenshots and screen recordings\nIcon=blink\nExec="
-                           + desktopExec(QCoreApplication::applicationFilePath()).toUtf8() + '\n';
-    if (const QString error = writeFile(path, entry); !error.isEmpty())
+    if (const QString error = applyAutostart(settings_.startAtLogin); !error.isEmpty())
         notifier_->error(tr("Could not set Blink to start at login"), error);
 }
 

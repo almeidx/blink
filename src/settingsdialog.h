@@ -37,6 +37,7 @@ private:
         PathPattern::Target target = PathPattern::Target::ObjectKey;
         QString extension;           // of the example capture
         QLineEdit *folder = nullptr; // a subfolder's save folder, which its example starts with
+        QStandardPaths::StandardLocation fallback = QStandardPaths::PicturesLocation; // where `folder` goes when empty
         QLineEdit *edit = nullptr;
         QLabel *icon = nullptr;
         QLabel *example = nullptr;

@@ -7,6 +7,7 @@
 #include <QDBusPendingReply>
 #include <QDebug>
 #include <QDesktopServices>
+#include <QGuiApplication>
 
 namespace blink {
 namespace {
@@ -39,7 +40,7 @@ Notifier::Notifier(QObject *parent) : QObject(parent)
 
 void Notifier::notify(const QString &summary, const QString &body, const QUrl &target, const QImage &thumbnail)
 {
-    QVariantMap hints{{u"desktop-entry"_s, u"blink"_s}};
+    QVariantMap hints;
     if (target.isLocalFile())
         hints.insert(u"x-kde-urls"_s, QStringList{target.toString()});
     else if (!thumbnail.isNull())
@@ -51,14 +52,16 @@ void Notifier::error(const QString &summary, const QString &body)
 {
     // Also in the journal: notifications may be off or gone.
     qWarning().noquote() << summary + u": "_s + body;
-    send(summary, body, {{u"desktop-entry"_s, u"blink"_s}}, {});
+    send(summary, body, {}, {});
 }
 
-void Notifier::send(const QString &summary, const QString &body, const QVariantMap &hints, const QUrl &target)
+void Notifier::send(const QString &summary, const QString &body, QVariantMap hints, const QUrl &target)
 {
+    const QString desktopFile = QGuiApplication::desktopFileName();
+    hints.insert(u"desktop-entry"_s, desktopFile);
     QDBusMessage message = QDBusMessage::createMethodCall(kService, kPath, kService, u"Notify"_s);
     const QStringList actions = target.isValid() ? QStringList{u"default"_s, tr("Open")} : QStringList{};
-    message << u"Blink"_s << 0u << u"blink"_s << summary << body << actions << hints << -1;
+    message << QGuiApplication::applicationDisplayName() << 0u << desktopFile << summary << body << actions << hints << -1;
     auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, target](QDBusPendingCallWatcher *watcher) {
         watcher->deleteLater();

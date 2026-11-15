@@ -27,11 +27,11 @@ jobs:
       - name: Install build dependencies
         run: dnf -y builddep packaging/blink-capture.spec
       - name: Check formatting
-        run: clang-format --dry-run --Werror src/*.cpp src/*.h recorder/*.cpp recorder/*.h
+        run: clang-format --dry-run --Werror src/*.cpp src/*.h recorder/*.cpp recorder/*.h shared/*.h
       - name: Configure
         run: cmake -S . -B build -G Ninja
       # Also generates the moc and Wayland protocol sources that clang-tidy needs.
       - name: Build
         run: cmake --build build
       - name: Run clang-tidy
-        run: run-clang-tidy -p build -quiet '/(src|recorder)/[^/]*$'
+        run: run-clang-tidy -p build -quiet '/(src|recorder|shared)/[^/]*$'

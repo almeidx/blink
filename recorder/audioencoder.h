@@ -10,8 +10,6 @@
 #include <string>
 #include <thread>
 
-struct AVStream;
-
 namespace blink::recorder {
 
 class Events;
@@ -42,7 +40,6 @@ private:
     Muxer &muxer_;
     Events &events_;
     CodecContextPtr codec_;
-    AVStream *stream_ = nullptr;
     FramePtr frame_;
     PacketPtr packet_;
     bool planar_ = true;

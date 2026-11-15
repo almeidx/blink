@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMetaClassInfo>
 #include <QStandardPaths>
 
 #include <chrono>
@@ -19,6 +20,7 @@ using namespace std::chrono_literals;
 
 // Normally answered in ~10 ms; the region selection is already on screen while this runs.
 constexpr auto kReplyTimeout = 500ms;
+const auto kPath = u"/WindowList"_s;
 
 QDBusMessage scriptingCall(const QString &path, const QString &interface, const QString &method)
 {
@@ -40,7 +42,7 @@ WindowList::WindowList(QObject *parent)
     QFile script(u":/windowlist.js"_s);
     if (script.open(QIODevice::ReadOnly))
         script_ = script.readAll();
-    QDBusConnection::sessionBus().registerObject(u"/WindowList"_s, this, QDBusConnection::ExportScriptableInvokables);
+    QDBusConnection::sessionBus().registerObject(kPath, this, QDBusConnection::ExportScriptableInvokables);
     timeout_.setSingleShot(true);
     timeout_.setInterval(kReplyTimeout);
     connect(&timeout_, &QTimer::timeout, this, [this] { finish({}); });
@@ -53,22 +55,26 @@ WindowList::~WindowList()
     QFile::remove(scriptPath_);
 }
 
-void WindowList::query(Callback done)
+QFuture<QList<WindowList::Window>> WindowList::query()
 {
-    if (!plugin_.isEmpty())
-        unloadScript(plugin_);
-    done_ = std::move(done);
+    finish({});
+    result_.emplace();
+    result_->start();
+    QFuture<QList<Window>> future = result_->future();
     ++request_;
     // KWin refuses to load a second script under a name that is still loaded.
     plugin_ = u"blink-windowlist-"_s + QString::number(request_);
     timeout_.start();
 
+    const auto quoted = [](const QByteArray &text) { return '"' + text + '"'; };
+    const QByteArray interface = metaObject()->classInfo(metaObject()->indexOfClassInfo("D-Bus Interface")).value();
+    const QByteArray prefix = "function blinkReport(windows) {\n    callDBus("
+                            + quoted(QDBusConnection::sessionBus().baseService().toLatin1()) + ", " + quoted(kPath.toLatin1()) + ", "
+                            + quoted(interface) + R"(, "report", )" + QByteArray::number(request_) + ", windows);\n}\n";
     QFile file(scriptPath_);
-    const QByteArray prefix = "const blinkService = \"" + QDBusConnection::sessionBus().baseService().toLatin1()
-                            + "\";\nconst blinkRequest = " + QByteArray::number(request_) + ";\n";
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(prefix + script_) < 0) {
         finish({});
-        return;
+        return future;
     }
     file.close();
 
@@ -87,6 +93,7 @@ void WindowList::query(Callback done)
         const QDBusMessage run = scriptingCall(u"/Scripting/Script"_s + QString::number(reply.value()), u"org.kde.kwin.Script"_s, u"run"_s);
         QDBusConnection::sessionBus().call(run, QDBus::NoBlock);
     });
+    return future;
 }
 
 void WindowList::report(int request, const QString &windows)
@@ -111,8 +118,11 @@ void WindowList::finish(const QList<Window> &windows)
         unloadScript(plugin_);
         plugin_.clear();
     }
-    if (Callback done = std::exchange(done_, {}))
-        done(windows);
+    if (result_) {
+        result_->addResult(windows);
+        result_->finish();
+        result_.reset();
+    }
 }
 
 } // namespace blink

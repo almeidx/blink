@@ -1,14 +1,11 @@
 #include "mixer.h"
 
+#include "clock.h"
+
 #include <algorithm>
 #include <cstdlib>
 
 namespace blink::recorder {
-namespace {
-
-constexpr int64_t kNsPerSecond = 1'000'000'000;
-
-} // namespace
 
 Mixer::Mixer() : bus_(static_cast<size_t>(kCapacity * kChannels), 0.0F) {}
 

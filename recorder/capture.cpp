@@ -1,5 +1,6 @@
 #include "capture.h"
 
+#include "clock.h"
 #include "events.h"
 #include "framequeue.h"
 #include "mixer.h"
@@ -17,20 +18,10 @@
 #include <cstdlib>
 #include <cstring>
 
-#include <time.h>
-
 namespace blink::recorder {
 namespace {
 
-constexpr int64_t kNsPerSecond = 1'000'000'000;
 constexpr uint32_t kBytesPerPixel = 4;
-
-int64_t monotonicNs()
-{
-    timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (ts.tv_sec * kNsPerSecond) + ts.tv_nsec;
-}
 
 // KWin stamps frames with CLOCK_MONOTONIC. Other producers (GStreamer's pipewiresink) use their own epoch, and may
 // deliver a backlog faster than real time: their stamps are not comparable with the audio, so arrival time is used.

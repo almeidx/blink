@@ -22,7 +22,6 @@ public:
     enum Role {
         PathRole = Qt::UserRole,
         VideoRole,
-        KindRole,      // "screenshot" or "recording", to filter on
         ThumbnailRole, // a QImage; asking for it starts making it, and dataChanged() follows
         ModifiedRole,  // a QDateTime, local time
     };

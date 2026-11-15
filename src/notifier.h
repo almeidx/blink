@@ -22,7 +22,7 @@ public:
 private:
     Q_INVOKABLE void onActionInvoked(uint id, const QString &action);
     Q_INVOKABLE void onClosed(uint id, uint reason);
-    void send(const QString &summary, const QString &body, const QVariantMap &hints, const QUrl &target);
+    void send(const QString &summary, const QString &body, QVariantMap hints, const QUrl &target);
 
     QHash<uint, QUrl> targets_;
 };

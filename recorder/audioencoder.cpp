@@ -1,5 +1,6 @@
 #include "audioencoder.h"
 
+#include "clock.h"
 #include "events.h"
 #include "mixer.h"
 #include "muxer.h"
@@ -12,8 +13,6 @@ extern "C" {
 #include <chrono>
 #include <span>
 
-#include <time.h>
-
 namespace blink::recorder {
 namespace {
 
@@ -22,13 +21,6 @@ using namespace std::chrono_literals;
 constexpr int64_t kBitRate = 160'000;
 // The encoder thread's tick; a fraction of the mixer latency, so the bus never comes close to overflowing.
 constexpr auto kTick = 20ms;
-
-int64_t monotonicNs()
-{
-    timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (ts.tv_sec * 1'000'000'000LL) + ts.tv_nsec;
-}
 
 } // namespace
 
@@ -75,13 +67,8 @@ std::string AudioEncoder::open()
     int error = avcodec_open2(codec_.get(), codec, nullptr);
     if (error < 0)
         return std::string("cannot open ") + codec->name + ": " + avError(error);
-    if (codec->id == AV_CODEC_ID_OPUS)
-        muxer_.setExperimental();
 
-    stream_ = muxer_.addAudioStream();
-    if (!stream_)
-        return "cannot create the audio stream";
-    if (std::string message = muxer_.setParameters(stream_, codec_.get()); !message.empty())
+    if (std::string message = muxer_.addAudioStream(codec_.get()); !message.empty())
         return message;
 
     frame_->format = codec_->sample_fmt;
@@ -194,7 +181,7 @@ bool AudioEncoder::drain()
             events_.fail("cannot encode audio: " + avError(error));
             return false;
         }
-        if (std::string message = muxer_.write(packet_.get(), stream_, codec_->time_base); !message.empty()) {
+        if (std::string message = muxer_.write(packet_.get(), Muxer::Stream::Audio, codec_->time_base); !message.empty()) {
             events_.fail(message);
             return false;
         }

@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
             method = command.method;
     }
 
-    const QString service = u"io.github.almeidx.Blink"_s;
+    const QString service = blink::App::kDBusService;
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         std::fputs("blink: no D-Bus session bus\n", stderr);
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     }
     if (!bus.registerService(service)) {
         // Already running: hand the request over. Starting Blink again from the menu opens its settings.
-        const QDBusMessage call = QDBusMessage::createMethodCall(service, u"/Blink"_s, service,
+        const QDBusMessage call = QDBusMessage::createMethodCall(service, blink::App::kDBusPath, service,
                                                                  method.isEmpty() ? u"showSettings"_s : QString(method));
         return bus.call(call).type() == QDBusMessage::ErrorMessage ? 1 : 0;
     }

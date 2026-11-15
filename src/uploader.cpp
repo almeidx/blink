@@ -1,6 +1,7 @@
 #include "uploader.h"
 
 #include "pathpattern.h"
+#include "threadpool.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -10,9 +11,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QPromise>
 #include <QRandomGenerator>
-#include <QThreadPool>
 #include <QUrl>
 #include <QVarLengthArray>
 #include <QXmlStreamReader>
@@ -127,13 +126,13 @@ QByteArray authorization(const S3Config &config, const QByteArray &method, const
          + ",Signature=" + hmac(key, stringToSign).toHex();
 }
 
-QNetworkRequest signedRequest(const S3Config &config, const Object &object, const QByteArray &method, const QByteArray &payloadHash,
-                              bool publicRead)
+// x-amz-acl goes on uploads only.
+QNetworkRequest signedRequest(const S3Config &config, const Object &object, const QByteArray &method, const QByteArray &payloadHash)
 {
     const QByteArray timestamp = QDateTime::currentDateTimeUtc().toString(u"yyyyMMdd'T'HHmmss'Z'"_s).toLatin1();
     QVarLengthArray<Header, 4> headers;
     headers.append({"host"_ba, object.host});
-    if (publicRead)
+    if (config.publicRead && method == "PUT")
         headers.append({"x-amz-acl"_ba, "public-read"_ba});
     headers.append({"x-amz-content-sha256"_ba, payloadHash});
     headers.append({"x-amz-date"_ba, timestamp});
@@ -192,19 +191,32 @@ void whenFinished(QNetworkReply *reply, QObject *context, std::function<void(con
     });
 }
 
+// Calls `done` once `reply` finishes, with the link to `object` on success.
+void whenDone(QNetworkReply *reply, QObject *context, const Object &object, Uploader::Callback done)
+{
+    whenFinished(reply, context,
+                 [link = object.link, done = std::move(done)](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
+}
+
+// Reports a failure from the event loop, as a request would.
+void failLater(QObject *context, Uploader::Callback done, const QString &error)
+{
+    QMetaObject::invokeMethod(context, [done = std::move(done), error] { done({{}, error}); }, Qt::QueuedConnection);
+}
+
+QByteArray payloadHash(const Object &object, const QByteArray &body)
+{
+    return object.https ? kUnsignedPayload : sha256Hex(body);
+}
+
 QFuture<QByteArray> hashFile(const QString &path)
 {
-    QPromise<QByteArray> promise;
-    QFuture<QByteArray> future = promise.future();
-    QThreadPool::globalInstance()->start([path, promise = std::move(promise)] mutable {
-        promise.start();
+    return runInPool([path] {
         QFile file(path);
         QCryptographicHash hash(QCryptographicHash::Sha256);
         // Unreadable: the upload, which opens the file again, reports it.
-        promise.addResult(file.open(QIODevice::ReadOnly) && hash.addData(&file) ? hash.result().toHex() : QByteArray());
-        promise.finish();
+        return file.open(QIODevice::ReadOnly) && hash.addData(&file) ? hash.result().toHex() : QByteArray();
     });
-    return future;
 }
 
 } // namespace
@@ -214,27 +226,25 @@ Uploader::Uploader(QObject *parent) : QObject(parent), network_(new QNetworkAcce
 void Uploader::upload(const S3Config &config, const QByteArray &data, const QString &key, const QString &contentType, Callback done)
 {
     const Object object = locate(config, key);
-    QNetworkRequest request = signedRequest(config, object, "PUT"_ba, object.https ? kUnsignedPayload : sha256Hex(data), config.publicRead);
+    QNetworkRequest request = signedRequest(config, object, "PUT"_ba, payloadHash(object, data));
     request.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
-    whenFinished(network_->put(request, data), this,
-                 [link = object.link, done = std::move(done)](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
+    whenDone(network_->put(request, data), this, object, std::move(done));
 }
 
 void Uploader::uploadFile(const S3Config &config, const QString &path, const QString &key, const QString &contentType, Callback done)
 {
-    const auto send = [this, config, path, contentType, done = std::move(done)](const Object &object, const QByteArray &payloadHash) {
+    const auto send = [this, config, path, contentType, done = std::move(done)](const Object &object, const QByteArray &hash) {
         auto file = std::make_unique<QFile>(path);
         if (!file->open(QIODevice::ReadOnly)) {
-            const Result result{{}, tr("Cannot read %1: %2").arg(path, file->errorString())};
-            QMetaObject::invokeMethod(this, [done, result] { done(result); }, Qt::QueuedConnection);
+            failLater(this, done, tr("Cannot read %1: %2").arg(path, file->errorString()));
             return;
         }
-        QNetworkRequest request = signedRequest(config, object, "PUT"_ba, payloadHash, config.publicRead);
+        QNetworkRequest request = signedRequest(config, object, "PUT"_ba, hash);
         request.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
         request.setHeader(QNetworkRequest::ContentLengthHeader, file->size());
         QNetworkReply *reply = network_->put(request, file.get());
         file.release()->setParent(reply);
-        whenFinished(reply, this, [link = object.link, done](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
+        whenDone(reply, this, object, done);
     };
 
     Object object = locate(config, key);
@@ -250,7 +260,7 @@ void Uploader::test(const S3Config &config, Callback done)
     QString error;
     const QString example = PathPattern::expand(config.path, PathPattern::Target::ObjectKey, PathPattern::example(u"txt"_s), &error);
     if (!error.isEmpty()) {
-        QMetaObject::invokeMethod(this, [done = std::move(done), error] { done({{}, error}); }, Qt::QueuedConnection);
+        failLater(this, std::move(done), error);
         return;
     }
     // Where uploads go, so permissions limited to that folder are what is checked, but under a name no upload gets:
@@ -258,16 +268,14 @@ void Uploader::test(const S3Config &config, Callback done)
     const QString folder = example.first(example.lastIndexOf(u'/') + 1);
     const Object object = locate(config, folder + u"blink-test-%1.txt"_s.arg(QRandomGenerator::global()->generate64(), 16, 16, u'0'));
     const QByteArray body = "Blink checks that it can upload here.\n"_ba;
-    QNetworkRequest put = signedRequest(config, object, "PUT"_ba, object.https ? kUnsignedPayload : sha256Hex(body), config.publicRead);
+    QNetworkRequest put = signedRequest(config, object, "PUT"_ba, payloadHash(object, body));
     put.setHeader(QNetworkRequest::ContentTypeHeader, u"text/plain"_s);
     whenFinished(network_->put(put, body), this, [this, config, object, done = std::move(done)](const QString &error) {
         if (!error.isEmpty()) {
             done({{}, error});
             return;
         }
-        const QNetworkRequest remove = signedRequest(config, object, "DELETE"_ba, object.https ? kUnsignedPayload : sha256Hex({}), false);
-        whenFinished(network_->deleteResource(remove), this,
-                     [link = object.link, done](const QString &error) { done({error.isEmpty() ? link : QString(), error}); });
+        whenDone(network_->deleteResource(signedRequest(config, object, "DELETE"_ba, payloadHash(object, {}))), this, object, done);
     });
 }
 

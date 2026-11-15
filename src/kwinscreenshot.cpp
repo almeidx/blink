@@ -1,13 +1,13 @@
 #include "kwinscreenshot.h"
 
+#include "threadpool.h"
+
 #include <QCoreApplication>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusUnixFileDescriptor>
-#include <QPointer>
-#include <QThreadPool>
 #include <QtNumeric>
 
 #include <algorithm>
@@ -198,19 +198,18 @@ void KWinScreenshot::call(const QString &method, QVariantList arguments, const O
                 std::optional<QDBusPendingReply<QVariantMap>> info;
                 if (const QString id = results.value(u"windowId"_s).toString(); !id.isEmpty())
                     info = windowInfo(id);
-                QThreadPool::globalInstance()->start([self = QPointer(this), fd, results, info, done] {
+                struct Capture {
+                    QImage image;
+                    QString app;
                     QString error;
-                    const QImage image = readImage(fd, results, &error);
+                };
+                runInPool([fd, results, info] {
+                    Capture capture;
+                    capture.image = readImage(fd, results, &capture.error);
                     ::close(fd);
-                    const QString app = info ? appOf(*info) : QString();
-                    QMetaObject::invokeMethod(
-                        qApp,
-                        [self, image, app, error, done] {
-                            if (self)
-                                done(image, app, error);
-                        },
-                        Qt::QueuedConnection);
-                });
+                    capture.app = info ? appOf(*info) : QString();
+                    return capture;
+                }).then(this, [done](const Capture &capture) { done(capture.image, capture.app, capture.error); });
             });
 }
 

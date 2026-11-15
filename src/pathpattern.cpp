@@ -287,4 +287,12 @@ QList<PathPattern::Group> PathPattern::groups(Target target)
     return groups;
 }
 
+QString captureFolder(const QString &folder, QStringView pattern, const CaptureInfo &info, QString *error)
+{
+    const QString subfolder = PathPattern::expand(pattern, PathPattern::Target::Subfolder, info, error);
+    if (!error->isEmpty())
+        return {};
+    return subfolder.isEmpty() ? folder : folder + u'/' + subfolder;
+}
+
 } // namespace blink

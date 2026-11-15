@@ -21,21 +21,21 @@ public:
     Muxer(const Muxer &) = delete;
     Muxer &operator=(const Muxer &) = delete;
 
-    // Creates the file and the video stream; returns an error message on failure.
+    enum class Stream { Video, Audio };
+
+    // Creates the file and the video stream (index 0); returns an error message on failure.
     std::string open(const std::string &path);
-    AVStream *videoStream() const { return video_; }
-    AVStream *addAudioStream();
     // Encoders must set AV_CODEC_FLAG_GLOBAL_HEADER when this is true.
     bool globalHeader() const;
-    void setExperimental();
-
-    // Copies the encoder parameters into the stream.
-    std::string setParameters(AVStream *stream, const AVCodecContext *codec);
+    // Copy an opened encoder's parameters into the video stream, or into a new audio stream (index 1); return an
+    // error message on failure.
+    std::string setVideoParameters(const AVCodecContext *codec);
+    std::string addAudioStream(const AVCodecContext *codec);
     // Writes the header; all streams must have their parameters.
     std::string start();
     bool started() const { return started_.load(std::memory_order_acquire); }
     // `packet` is in `timeBase`; it is consumed.
-    std::string write(AVPacket *packet, AVStream *stream, AVRational timeBase);
+    std::string write(AVPacket *packet, Stream stream, AVRational timeBase);
     std::string finish();
     // Closes and deletes the file.
     void discard();
@@ -47,6 +47,7 @@ private:
     std::string path_;
     AVFormatContext *context_ = nullptr;
     AVStream *video_ = nullptr;
+    AVStream *audio_ = nullptr;
     std::atomic<bool> started_ = false;
 };
 

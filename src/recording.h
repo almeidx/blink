@@ -23,36 +23,25 @@ class Recording final : public QObject {
     Q_OBJECT
 
 public:
-    struct Options {
-        QString output; // .mp4
-        int fps = recorder::kDefaultFps;
-        Quality quality = Quality::High;
-        EncoderPreference encoder = EncoderPreference::Auto;
-        bool cursor = true;
-        bool systemAudio = true;
-        bool microphone = false;
-    };
-
-    // `region` is in global logical coordinates.
-    Recording(const QRect &region, qreal scale, Options options, QObject *parent = nullptr);
+    // `region` is in global logical coordinates; the video goes to `output`, an .mp4 file.
+    Recording(const QRect &region, qreal scale, QString output, const RecordingOptions &options, QObject *parent = nullptr);
     ~Recording() override;
 
     void start();
     void stop();  // keeps the file
     void abort(); // deletes it
 
-    // The size of the video, in pixels, once it has started; empty before.
-    QSize videoSize() const { return videoSize_; }
-
 Q_SIGNALS:
-    void started(const QString &encoder); // frames are going into the file
-    void warning(const QString &text);    // e.g. the microphone could not be opened; recording goes on
-    void finished(const QString &path);
+    void started(const QString &encoder);           // frames are going into the file
+    void warning(const QString &text);              // e.g. the microphone could not be opened; recording goes on
+    void finished(const QString &path, QSize size); // `size` of the video, in pixels
     void aborted();
     void failed(const QString &error);
 
 private:
     enum class State { Idle, Requesting, Starting, Recording, Stopping, Done };
+    // How the recorder said the file ended, before it exited.
+    enum class Reported { Nothing, Finished, Aborted };
 
     void launch(quint64 target, bool isSerial);
     void readEvents();
@@ -63,9 +52,11 @@ private:
 
     QRect region_;
     qreal scale_;
-    Options options_;
+    QString output_;
+    RecordingOptions options_;
     State state_ = State::Idle;
-    bool aborting_ = false;
+    bool aborting_ = false; // abort() or fail(): the recorder is told to delete the file
+    Reported reported_ = Reported::Nothing;
     QString encoder_;
     QSize videoSize_;
     QString error_;

@@ -1,5 +1,7 @@
 #include "librarymodel.h"
 
+#include "recorderclient.h"
+
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QLocale>
@@ -19,8 +21,12 @@ using namespace std::chrono_literals;
 
 // What Blink saves, and the common types beside it.
 constexpr std::array kImageSuffixes{"png"_L1, "jpg"_L1, "jpeg"_L1, "webp"_L1, "gif"_L1, "bmp"_L1, "avif"_L1, "jxl"_L1};
-// The containers blink-recorder --thumbnail opens.
-constexpr std::array kVideoSuffixes{"mp4"_L1, "mkv"_L1, "webm"_L1, "mov"_L1};
+
+bool isVideo(const QString &suffix)
+{
+    return std::ranges::any_of(recorder::kThumbnailSuffixes, [&](std::string_view video) { return suffix == latin1(video); });
+}
+
 // More changes than this at once reset the model: cheaper than as many row insertions and removals.
 constexpr qsizetype kMaxRowChanges = 64;
 
@@ -45,7 +51,7 @@ Found scanFolders(const QStringList &folders, const std::atomic_bool &stopping)
                 continue;
             }
             const QString suffix = info.suffix().toLower();
-            const bool video = std::ranges::contains(kVideoSuffixes, suffix);
+            const bool video = isVideo(suffix);
             if ((!video && !std::ranges::contains(kImageSuffixes, suffix)) || seen.contains(info.filePath()))
                 continue;
             seen.insert(info.filePath());
@@ -130,8 +136,6 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return entry.path;
     case VideoRole:
         return entry.video;
-    case KindRole:
-        return entry.video ? u"recording"_s : u"screenshot"_s;
     case ThumbnailRole:
         return thumbnailer_->thumbnail(entry);
     case ModifiedRole:

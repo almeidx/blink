@@ -1,5 +1,7 @@
 #include "regionselector.h"
 
+#include "colors.h"
+
 #include <LayerShellQt/Window>
 
 #include <QFontInfo>
@@ -14,7 +16,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <thread>
 
 namespace blink {
 
@@ -37,47 +38,6 @@ QRect alignedDevice(const QRectF &device)
 }
 
 } // namespace
-
-// The backdrop: the frozen screen at 62.5% brightness, two channels per multiply. A 4K screen is 33 MB and the
-// overlay waits for this, so rows are split across threads.
-static QImage dim(const QImage &image)
-{
-    QImage dimmed(image.size(), QImage::Format_RGB32);
-    const uchar *src = image.constBits();
-    uchar *dst = dimmed.bits();
-    const qsizetype srcStride = image.bytesPerLine();
-    const qsizetype dstStride = dimmed.bytesPerLine();
-    const int width = image.width();
-    auto rows = [=](int first, int last) {
-        for (int y = first; y < last; ++y) {
-            const auto *in = reinterpret_cast<const uint32_t *>(src + y * srcStride);
-            auto *out = reinterpret_cast<uint32_t *>(dst + y * dstStride);
-            for (int x = 0; x < width; ++x) {
-                const uint32_t p = in[x];
-                const uint32_t rb = ((p & 0x00ff00ffu) * 5u >> 3u) & 0x00ff00ffu;
-                const uint32_t g = ((p >> 8u) & 0xffu) * 5u >> 3u;
-                out[x] = 0xff000000u | rb | (g << 8u);
-            }
-        }
-    };
-
-    const int height = image.height();
-    const int chunks = std::clamp(height / 64, 1, static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
-    std::vector<std::jthread> workers;
-    workers.reserve(chunks - 1);
-    for (int i = 1; i < chunks; ++i)
-        workers.emplace_back(rows, height * i / chunks, height * (i + 1) / chunks);
-    rows(0, height / chunks);
-    return dimmed;
-}
-
-void prepareScreenImage(QImage &image, QImage &dimmed)
-{
-    if (image.format() != QImage::Format_ARGB32_Premultiplied && image.format() != QImage::Format_RGB32
-        && image.format() != QImage::Format_ARGB32)
-        image.convertTo(QImage::Format_ARGB32_Premultiplied);
-    dimmed = dim(image);
-}
 
 // One overlay per screen: a layer-shell surface above everything, including panels. Paints in the frozen
 // image's own pixels, so the image is copied 1:1 into the backing store and outlines are exact.
@@ -138,7 +98,7 @@ SelectionWindow::SelectionWindow(RegionSelector *selector, int index, QScreen *s
 {
     font_.setPixelSize(static_cast<int>(std::lround(QFontInfo(font_).pixelSize() * scale_)));
     const bool recording = selector->purpose_ == RegionSelector::Purpose::Recording;
-    accent_ = recording ? QColor(0xda, 0x44, 0x53) : QGuiApplication::palette().color(QPalette::Highlight);
+    accent_ = recording ? kRecordingColor : QGuiApplication::palette().color(QPalette::Highlight);
     hintText_ = recording ? RegionSelector::tr("Drag to select the area to record  ·  Click to record a window  ·  Esc to cancel")
                           : RegionSelector::tr("Drag to select an area  ·  Click to capture a window  ·  Esc to cancel");
 
@@ -201,7 +161,6 @@ SelectionWindow::Decorations SelectionWindow::compute() const
         d.highlight = s.toDevice(index_, region) & bounds;
         if (!d.highlight.isEmpty())
             d.frame = d.highlight.adjusted(-border_, -border_, border_, border_);
-        // The size goes on the screen that has the selection's top left corner.
         if (s.screenAt(region.topLeft() + QPointF(0.01, 0.01)) == index_) {
             const QSize size = s.selectionSize(region);
             d.labelText = QString::number(size.width()) + u" × "_s + QString::number(size.height());
@@ -365,7 +324,8 @@ bool SelectionWindow::event(QEvent *event)
     return QRasterWindow::event(event);
 }
 
-RegionSelector::RegionSelector(std::vector<ScreenImage> screens, Purpose purpose, bool magnifier, QObject *parent)
+RegionSelector::RegionSelector(std::vector<ScreenImage> screens, QFuture<QList<WindowList::Window>> windows, Purpose purpose,
+                               bool magnifier, QObject *parent)
     : QObject(parent), purpose_(purpose), magnifier_(magnifier)
 {
     screens_.reserve(screens.size());
@@ -383,6 +343,10 @@ RegionSelector::RegionSelector(std::vector<ScreenImage> screens, Purpose purpose
 
     // A frozen screen that went away cannot be selected from any more.
     connect(qGuiApp, &QGuiApplication::screenRemoved, this, &RegionSelector::cancel);
+    windows.then(this, [this](const QList<WindowList::Window> &found) {
+        windows_ = found;
+        refresh();
+    });
 }
 
 RegionSelector::~RegionSelector() = default;
@@ -391,12 +355,6 @@ void RegionSelector::show()
 {
     for (Screen &screen : screens_)
         screen.window->show();
-}
-
-void RegionSelector::setWindows(QList<WindowList::Window> windows)
-{
-    windows_ = std::move(windows);
-    refresh();
 }
 
 int RegionSelector::screenAt(const QPointF &global) const
@@ -503,8 +461,8 @@ QImage RegionSelector::grab(const QRectF &region) const
         const QRect rect = toDevice(covered.front(), region) & screen.image.rect();
         // A view of the frozen pixels rather than a copy: a desktop click grabs the whole 33 MB of a 4K screen, and
         // the PNG encoder reads it on the pool after this selector is deleted, so a handle to the frozen image keeps
-        // the pixels alive as long as the view. Rows start at x * 4 because prepareScreenImage() made the image
-        // 32-bit. The non-const constructor: setDevicePixelRatio() detaches, and Qt copies read-only data on detach.
+        // the pixels alive as long as the view. Rows start at x * 4 because ScreenImage images are 32-bit. The
+        // non-const constructor: setDevicePixelRatio() detaches, and Qt copies read-only data on detach.
         // Nothing writes through the result (encodePng and scaled() take it const).
         auto *holder = new QImage(screen.image);
         auto *bits = const_cast<uchar *>(screen.image.constScanLine(rect.y()) + static_cast<qsizetype>(rect.x()) * 4);

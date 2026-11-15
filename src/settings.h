@@ -25,10 +25,26 @@ struct S3Config {
 };
 
 // The recorder's own types, so the config file, the dialog and the command line can never disagree.
+using recorder::Encoder;
 using recorder::Quality;
-using EncoderPreference = recorder::Encoder;
+
+// How a recording is made: KWin's stream (the cursor) and blink-recorder's encoding.
+struct RecordingOptions {
+    int fps = recorder::kDefaultFps;
+    Quality quality = Quality::High;
+    Encoder encoder = Encoder::Auto;
+    bool cursor = true;
+    bool systemAudio = true;
+    bool microphone = false;
+
+    bool operator==(const RecordingOptions &) const = default;
+};
 
 struct Settings {
+    // Where each save folder goes when none is set.
+    static constexpr QStandardPaths::StandardLocation kScreenshotLocation = QStandardPaths::PicturesLocation;
+    static constexpr QStandardPaths::StandardLocation kRecordingLocation = QStandardPaths::MoviesLocation;
+
     bool startAtLogin = true;
     bool notifications = true;
 
@@ -44,12 +60,7 @@ struct Settings {
     // Recordings, always saved
     QString recordingFolder;
     QString recordingSubfolder = QStringLiteral("{year}-{month}"); // likewise
-    int fps = recorder::kDefaultFps;
-    Quality quality = Quality::High;
-    EncoderPreference encoder = EncoderPreference::Auto;
-    bool recordCursor = true;
-    bool systemAudio = true;
-    bool microphone = false;
+    RecordingOptions recording;
 
     // Uploads
     bool uploadScreenshots = false;

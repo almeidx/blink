@@ -5,6 +5,18 @@
 #include <unistd.h>
 
 namespace blink::recorder {
+namespace {
+
+std::string setParameters(AVStream *stream, const AVCodecContext *codec)
+{
+    const int error = avcodec_parameters_from_context(stream->codecpar, codec);
+    if (error < 0)
+        return "cannot set the stream parameters: " + avError(error);
+    stream->time_base = codec->time_base;
+    return {};
+}
+
+} // namespace
 
 Muxer::~Muxer()
 {
@@ -26,28 +38,24 @@ std::string Muxer::open(const std::string &path)
     return {};
 }
 
-AVStream *Muxer::addAudioStream()
-{
-    return avformat_new_stream(context_, nullptr);
-}
-
 bool Muxer::globalHeader() const
 {
     return (context_->oformat->flags & AVFMT_GLOBALHEADER) != 0;
 }
 
-void Muxer::setExperimental()
+std::string Muxer::setVideoParameters(const AVCodecContext *codec)
 {
-    context_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+    return setParameters(video_, codec);
 }
 
-std::string Muxer::setParameters(AVStream *stream, const AVCodecContext *codec)
+std::string Muxer::addAudioStream(const AVCodecContext *codec)
 {
-    const int error = avcodec_parameters_from_context(stream->codecpar, codec);
-    if (error < 0)
-        return "cannot set the stream parameters: " + avError(error);
-    stream->time_base = codec->time_base;
-    return {};
+    if (codec->codec_id == AV_CODEC_ID_OPUS)
+        context_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+    audio_ = avformat_new_stream(context_, nullptr);
+    if (!audio_)
+        return "cannot create the audio stream";
+    return setParameters(audio_, codec);
 }
 
 std::string Muxer::start()
@@ -63,11 +71,12 @@ std::string Muxer::start()
     return {};
 }
 
-std::string Muxer::write(AVPacket *packet, AVStream *stream, AVRational timeBase)
+std::string Muxer::write(AVPacket *packet, Stream stream, AVRational timeBase)
 {
     std::lock_guard lock(mutex_);
-    packet->stream_index = stream->index;
-    av_packet_rescale_ts(packet, timeBase, stream->time_base);
+    const AVStream *target = stream == Stream::Video ? video_ : audio_;
+    packet->stream_index = target->index;
+    av_packet_rescale_ts(packet, timeBase, target->time_base);
     const int error = av_interleaved_write_frame(context_, packet);
     if (error < 0)
         return "cannot write to the file: " + avError(error);
@@ -105,6 +114,7 @@ void Muxer::close()
     avformat_free_context(context_);
     context_ = nullptr;
     video_ = nullptr;
+    audio_ = nullptr;
 }
 
 } // namespace blink::recorder

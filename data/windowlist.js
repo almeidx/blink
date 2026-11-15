@@ -1,7 +1,7 @@
 // KWin script run for each region selection. Reports the windows on screen, topmost first, as
 // [x, y, width, height, app] in logical compositor coordinates, so the selection can snap to them. app is the
 // window's desktop file name, else its window class; empty for the desktop, panels and the like, which are no app's.
-// Blink prepends the definitions of blinkService and blinkRequest.
+// Blink prepends blinkReport(), which hands the JSON text to Blink over D-Bus.
 const windows = [];
 const desktop = workspace.currentDesktop.id;
 const activity = workspace.currentActivity;
@@ -18,4 +18,4 @@ for (let i = order.length - 1; i >= 0; --i) {
     if (g.width > 0 && g.height > 0)
         windows.push([g.x, g.y, g.width, g.height, w.specialWindow ? "" : w.desktopFileName || w.resourceClass]);
 }
-callDBus(blinkService, "/WindowList", "io.github.almeidx.Blink.WindowList", "report", blinkRequest, JSON.stringify(windows));
+blinkReport(JSON.stringify(windows));

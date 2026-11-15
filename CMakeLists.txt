@@ -47,6 +47,7 @@ set(BLINK_RECORDER_PATH "${CMAKE_INSTALL_FULL_LIBEXECDIR}/blink/blink-recorder")
 add_executable(blink-recorder
     recorder/audioencoder.cpp recorder/audioencoder.h
     recorder/capture.cpp recorder/capture.h
+    recorder/clock.h
     recorder/events.cpp recorder/events.h
     recorder/ffmpeg.cpp recorder/ffmpeg.h
     recorder/framequeue.cpp recorder/framequeue.h
@@ -55,34 +56,40 @@ add_executable(blink-recorder
     recorder/muxer.cpp recorder/muxer.h
     recorder/thumbnail.cpp recorder/thumbnail.h
     recorder/videoencoder.cpp recorder/videoencoder.h
-    src/recorderprotocol.h
+    shared/recorderprotocol.h
 )
-target_include_directories(blink-recorder PRIVATE src)
+target_include_directories(blink-recorder PRIVATE shared)
 target_link_libraries(blink-recorder PRIVATE PkgConfig::PipeWire PkgConfig::FFmpeg Threads::Threads)
 target_link_options(blink-recorder PRIVATE -Wl,--as-needed)
 
 qt_add_executable(blink
+    shared/recorderprotocol.h
     src/app.cpp src/app.h
     src/appname.cpp src/appname.h
+    src/autostart.cpp src/autostart.h
     src/clipboard.cpp src/clipboard.h
+    src/colors.h
+    src/frozenscreens.cpp src/frozenscreens.h
     src/kwinscreenshot.cpp src/kwinscreenshot.h
     src/librarymodel.cpp src/librarymodel.h
     src/librarywindow.cpp src/librarywindow.h
+    src/logging.cpp src/logging.h
     src/main.cpp
     src/notifier.cpp src/notifier.h
     src/pathpattern.cpp src/pathpattern.h
     src/pngencoder.cpp src/pngencoder.h
-    src/recorderpath.cpp src/recorderpath.h
-    src/recorderprotocol.h
+    src/recorderclient.cpp src/recorderclient.h
     src/recording.cpp src/recording.h
     src/regionselector.cpp src/regionselector.h
     src/screencast.cpp src/screencast.h
     src/settings.cpp src/settings.h
     src/settingsdialog.cpp src/settingsdialog.h
+    src/threadpool.h
     src/thumbnailer.cpp src/thumbnailer.h
     src/uploader.cpp src/uploader.h
     src/windowlist.cpp src/windowlist.h
 )
+target_include_directories(blink PRIVATE shared)
 if(QT_KNOWN_POLICY_QTP0006) # Qt 6.12+: keep the generated protocol symbols internal
     qt_policy(SET QTP0006 NEW)
 endif()

@@ -2,6 +2,7 @@
 
 #include "clipboard.h"
 #include "librarymodel.h"
+#include "threadpool.h"
 #include "thumbnailer.h"
 
 #include <KCategorizedSortFilterProxyModel>
@@ -15,7 +16,6 @@
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDesktopServices>
-#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -26,16 +26,14 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
-#include <QPromise>
 #include <QSettings>
 #include <QStyledItemDelegate>
-#include <QThreadPool>
 #include <QUrl>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
-#include <memory>
 
 namespace blink {
 
@@ -75,7 +73,7 @@ constexpr QSize kThumbnail(224, 140); // logical pixels; 16:10, and four to a ro
 constexpr int kPadding = 6;
 constexpr int kPlaceholderIcon = 48;
 constexpr qreal kBadge = 28;
-constexpr auto kGroupingKey = "State/libraryGrouping"_L1; // "none", "day", "month" or "year"
+constexpr auto kGroupingKey = "State/libraryGrouping"_L1; // the key of a kGroupings entry
 
 // Tells a recording from a screenshot: a play sign on a dark disc in the thumbnail's bottom left corner.
 void drawPlayBadge(QPainter *painter, const QRectF &thumbnail)
@@ -157,15 +155,23 @@ public:
 // group are always next to each other, as KCategorizedView needs them: no sorting.
 class LibraryProxy final : public KCategorizedSortFilterProxyModel {
 public:
+    enum class Kind { All, Screenshots, Recordings }; // in the order of the window's menu
+    enum class Grouping { None, Day, Month, Year };
+
     using KCategorizedSortFilterProxyModel::KCategorizedSortFilterProxyModel;
 
-    // "day", "month" or "year"; anything else is no groups.
-    void setGrouping(QStringView key)
+    Kind kind() const { return kind_; }
+    void setKind(Kind kind)
     {
-        const Grouping grouping = key == "day"_L1   ? Grouping::Day
-                                : key == "month"_L1 ? Grouping::Month
-                                : key == "year"_L1  ? Grouping::Year
-                                                    : Grouping::None;
+        if (kind == kind_)
+            return;
+        beginFilterChange();
+        kind_ = kind;
+        endFilterChange(Direction::Rows);
+    }
+
+    void setGrouping(Grouping grouping)
+    {
         if (grouping == grouping_)
             return;
         grouping_ = grouping;
@@ -196,11 +202,35 @@ public:
         return {};
     }
 
-private:
-    enum class Grouping { None, Day, Month, Year };
+protected:
+    bool filterAcceptsRow(int row, const QModelIndex &parent) const override
+    {
+        if (kind_ == Kind::All)
+            return true;
+        return sourceModel()->index(row, 0, parent).data(LibraryModel::VideoRole).toBool() == (kind_ == Kind::Recordings);
+    }
 
+private:
+    Kind kind_ = Kind::All;
     Grouping grouping_ = Grouping::None;
 };
+
+namespace {
+
+struct GroupingOption {
+    LibraryProxy::Grouping grouping;
+    QLatin1StringView key; // what the choice is remembered as
+    const char *label;
+};
+// In the order of the window's menu.
+constexpr std::array kGroupings{
+    GroupingOption{LibraryProxy::Grouping::None, "none"_L1, QT_TRANSLATE_NOOP("blink::LibraryWindow", "None")},
+    GroupingOption{LibraryProxy::Grouping::Day, "day"_L1, QT_TRANSLATE_NOOP("blink::LibraryWindow", "Day")},
+    GroupingOption{LibraryProxy::Grouping::Month, "month"_L1, QT_TRANSLATE_NOOP("blink::LibraryWindow", "Month")},
+    GroupingOption{LibraryProxy::Grouping::Year, "year"_L1, QT_TRANSLATE_NOOP("blink::LibraryWindow", "Year")},
+};
+
+} // namespace
 
 LibraryWindow::LibraryWindow(const Settings &settings, QWidget *parent)
     : QWidget(parent)
@@ -216,24 +246,22 @@ LibraryWindow::LibraryWindow(const Settings &settings, QWidget *parent)
     resize(1000, 700);
 
     filter_->setSourceModel(model_);
-    filter_->setFilterRole(LibraryModel::KindRole);
-    kind_->addItem(tr("All"), QString());
-    kind_->addItem(tr("Screenshots"), u"screenshot"_s);
-    kind_->addItem(tr("Recordings"), u"recording"_s);
-    connect(kind_, &QComboBox::currentIndexChanged, this, [this] {
-        filter_->setFilterFixedString(kind_->currentData().toString());
+    kind_->addItems({tr("All"), tr("Screenshots"), tr("Recordings")});
+    connect(kind_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        filter_->setKind(static_cast<LibraryProxy::Kind>(index));
         updateEmptyText();
     });
-    grouping_->addItem(tr("None"), u"none"_s);
-    grouping_->addItem(tr("Day"), u"day"_s);
-    grouping_->addItem(tr("Month"), u"month"_s);
-    grouping_->addItem(tr("Year"), u"year"_s);
-    grouping_->setCurrentIndex(std::max(grouping_->findData(QSettings().value(kGroupingKey).toString()), 0));
-    filter_->setGrouping(grouping_->currentData().toString());
-    connect(grouping_, &QComboBox::currentIndexChanged, this, [this] {
-        const QString key = grouping_->currentData().toString();
-        filter_->setGrouping(key);
-        QSettings().setValue(kGroupingKey, key);
+    const QString remembered = QSettings().value(kGroupingKey).toString();
+    for (const GroupingOption &option : kGroupings) {
+        grouping_->addItem(tr(option.label));
+        if (option.key == remembered)
+            grouping_->setCurrentIndex(grouping_->count() - 1);
+    }
+    filter_->setGrouping(kGroupings[static_cast<size_t>(grouping_->currentIndex())].grouping);
+    connect(grouping_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        const GroupingOption &option = kGroupings[static_cast<size_t>(index)];
+        filter_->setGrouping(option.grouping);
+        QSettings().setValue(kGroupingKey, option.key);
     });
 
     view_->setCategoryDrawer(new KCategoryDrawer(view_));
@@ -296,7 +324,7 @@ void LibraryWindow::setSettings(const Settings &settings)
 {
     saveScreenshots_ = settings.saveScreenshots;
     uploadable_ = settings.s3.isComplete();
-    model_->setFolders({QDir::cleanPath(settings.screenshotFolder), QDir::cleanPath(settings.recordingFolder)});
+    model_->setFolders({settings.screenshotFolder, settings.recordingFolder});
     updateActions();
     updateEmptyText();
 }
@@ -343,9 +371,11 @@ void LibraryWindow::updateEmptyText()
         view_->setEmptyText({});
         return;
     }
-    const QString kind = kind_->currentData().toString();
-    QString text = kind == "recording"_L1 ? tr("No recordings") : kind == "screenshot"_L1 ? tr("No screenshots") : tr("No captures yet");
-    if (kind != "recording"_L1 && !saveScreenshots_)
+    const LibraryProxy::Kind kind = filter_->kind();
+    QString text = kind == LibraryProxy::Kind::Recordings  ? tr("No recordings")
+                 : kind == LibraryProxy::Kind::Screenshots ? tr("No screenshots")
+                                                           : tr("No captures yet");
+    if (kind != LibraryProxy::Kind::Recordings && !saveScreenshots_)
         text += u"\n\n"_s + tr("Screenshots are not being saved. Turn on “Save screenshots to this folder” in the settings to keep them.");
     view_->setEmptyText(text);
 }
@@ -384,14 +414,10 @@ void LibraryWindow::copy()
         return;
     // One screenshot goes on as an image, as a capture does; anything else as files, as file managers copy them.
     if (paths.size() == 1 && paths.first().endsWith(".png"_L1, Qt::CaseInsensitive)) {
-        auto promise = std::make_shared<QPromise<QByteArray>>();
-        promise->start();
-        clipboard::setPng(promise->future());
-        QThreadPool::globalInstance()->start([path = paths.first(), promise] {
+        clipboard::setPng(runInPool([path = paths.first()] {
             QFile file(path);
-            promise->addResult(file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray());
-            promise->finish();
-        });
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        }));
         return;
     }
     clipboard::setFiles(paths);

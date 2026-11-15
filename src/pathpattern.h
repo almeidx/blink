@@ -52,4 +52,8 @@ public:
     static QList<Group> groups(Target target);
 };
 
+// The folder a capture goes in: the save `folder`, plus the subfolder that `pattern` names for the capture. Empty,
+// with `error` set, when the pattern is invalid.
+QString captureFolder(const QString &folder, QStringView pattern, const CaptureInfo &info, QString *error);
+
 } // namespace blink

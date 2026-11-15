@@ -201,7 +201,10 @@ QWidget *SettingsDialog::createScreenshotsTab(const Settings &settings)
     saveScreenshots_ = checkBox(tr("Save screenshots to this folder:"), settings.saveScreenshots);
     screenshotFolder_ = lineEdit(settings.screenshotFolder);
     QWidget *folder = createFolderField(screenshotFolder_, tr("Save Screenshots To"));
-    screenshotSubfolder_ = {.target = PathPattern::Target::Subfolder, .extension = u"png"_s, .folder = screenshotFolder_};
+    screenshotSubfolder_ = {.target = PathPattern::Target::Subfolder,
+                            .extension = u"png"_s,
+                            .folder = screenshotFolder_,
+                            .fallback = Settings::kScreenshotLocation};
     const auto [subfolder, subfolderExample] = createPatternField(screenshotSubfolder_, settings.screenshotSubfolder, subfolderToolTip());
 
     // KWin only draws the shadow of a window together with its decoration.
@@ -228,32 +231,36 @@ QWidget *SettingsDialog::createScreenshotsTab(const Settings &settings)
 QWidget *SettingsDialog::createRecordingTab(const Settings &settings)
 {
     recordingFolder_ = lineEdit(settings.recordingFolder);
-    recordingSubfolder_ = {.target = PathPattern::Target::Subfolder, .extension = u"mp4"_s, .folder = recordingFolder_};
+    recordingSubfolder_ = {.target = PathPattern::Target::Subfolder,
+                           .extension = u"mp4"_s,
+                           .folder = recordingFolder_,
+                           .fallback = Settings::kRecordingLocation};
     const auto [subfolder, subfolderExample] = createPatternField(recordingSubfolder_, settings.recordingSubfolder, subfolderToolTip());
 
+    const RecordingOptions &recording = settings.recording;
     fps_ = new QComboBox;
     for (const int fps : {30, 60})
         addItem(fps_, tr("%1 FPS").arg(fps), fps);
-    if (fps_->findData(settings.fps) < 0)
-        addItem(fps_, tr("%1 FPS").arg(settings.fps), settings.fps);
-    selectValue(fps_, settings.fps);
+    if (fps_->findData(recording.fps) < 0)
+        addItem(fps_, tr("%1 FPS").arg(recording.fps), recording.fps);
+    selectValue(fps_, recording.fps);
 
     quality_ = new QComboBox;
     addItem(quality_, tr("Low"), Quality::Low);
     addItem(quality_, tr("Medium"), Quality::Medium);
     addItem(quality_, tr("High"), Quality::High);
-    selectValue(quality_, static_cast<int>(settings.quality));
+    selectValue(quality_, static_cast<int>(recording.quality));
 
     encoder_ = new QComboBox;
-    addItem(encoder_, tr("Automatic"), EncoderPreference::Auto);
-    addItem(encoder_, tr("NVIDIA NVENC"), EncoderPreference::Nvenc);
-    addItem(encoder_, tr("VA-API"), EncoderPreference::Vaapi);
-    addItem(encoder_, tr("Software"), EncoderPreference::Software);
-    selectValue(encoder_, static_cast<int>(settings.encoder));
+    addItem(encoder_, tr("Automatic"), Encoder::Auto);
+    addItem(encoder_, tr("NVIDIA NVENC"), Encoder::Nvenc);
+    addItem(encoder_, tr("VA-API"), Encoder::Vaapi);
+    addItem(encoder_, tr("Software"), Encoder::Software);
+    selectValue(encoder_, static_cast<int>(recording.encoder));
 
-    recordCursor_ = checkBox(tr("Record the mouse pointer"), settings.recordCursor);
-    systemAudio_ = checkBox(tr("Record system audio"), settings.systemAudio);
-    microphone_ = checkBox(tr("Record the microphone"), settings.microphone);
+    recordCursor_ = checkBox(tr("Record the mouse pointer"), recording.cursor);
+    systemAudio_ = checkBox(tr("Record system audio"), recording.systemAudio);
+    microphone_ = checkBox(tr("Record the microphone"), recording.microphone);
 
     auto *page = new QWidget;
     auto *form = new QFormLayout(page);
@@ -451,17 +458,17 @@ Settings SettingsDialog::formSettings() const
     s.windowShadow = windowShadow_->isChecked();
     s.magnifier = magnifier_->isChecked();
     s.saveScreenshots = saveScreenshots_->isChecked();
-    s.screenshotFolder = Settings::normalizeFolder(screenshotFolder_->text(), QStandardPaths::PicturesLocation);
+    s.screenshotFolder = Settings::normalizeFolder(screenshotFolder_->text(), Settings::kScreenshotLocation);
     s.screenshotSubfolder = screenshotSubfolder_.edit->text().trimmed();
 
-    s.recordingFolder = Settings::normalizeFolder(recordingFolder_->text(), QStandardPaths::MoviesLocation);
+    s.recordingFolder = Settings::normalizeFolder(recordingFolder_->text(), Settings::kRecordingLocation);
     s.recordingSubfolder = recordingSubfolder_.edit->text().trimmed();
-    s.fps = fps_->currentData().toInt();
-    s.quality = currentValue<Quality>(quality_);
-    s.encoder = currentValue<EncoderPreference>(encoder_);
-    s.recordCursor = recordCursor_->isChecked();
-    s.systemAudio = systemAudio_->isChecked();
-    s.microphone = microphone_->isChecked();
+    s.recording.fps = fps_->currentData().toInt();
+    s.recording.quality = currentValue<Quality>(quality_);
+    s.recording.encoder = currentValue<Encoder>(encoder_);
+    s.recording.cursor = recordCursor_->isChecked();
+    s.recording.systemAudio = systemAudio_->isChecked();
+    s.recording.microphone = microphone_->isChecked();
 
     s.uploadScreenshots = uploadScreenshots_->isChecked();
     s.uploadRecordings = uploadRecordings_->isChecked();
@@ -508,35 +515,34 @@ void SettingsDialog::updatePattern(PatternField &field)
 
 void SettingsDialog::updateExample(PatternField &field)
 {
-    if (!field.error.isEmpty()) {
+    const auto showError = [this, &field](const QString &error) {
         field.icon->setPixmap(smallIcon(u"emblem-error"_s));
         field.icon->show();
         field.example->setForegroundRole(QPalette::WindowText);
-        field.example->setText(field.error);
+        field.example->setText(error);
+    };
+    if (!field.error.isEmpty()) {
+        showError(field.error);
         return;
     }
-    field.icon->hide();
-    field.example->setForegroundRole(QPalette::PlaceholderText);
     QString example;
     if (field.folder) {
-        const QString folder = Settings::normalizeFolder(
-            field.folder->text(), &field == &screenshotSubfolder_ ? QStandardPaths::PicturesLocation : QStandardPaths::MoviesLocation);
-        if (const QString error = folderError(folder); !error.isEmpty()) {
-            field.icon->setPixmap(smallIcon(u"emblem-error"_s));
-            field.icon->show();
-            field.example->setForegroundRole(QPalette::WindowText);
-            field.example->setText(error);
+        const QString folder = Settings::normalizeFolder(field.folder->text(), field.fallback);
+        const CaptureInfo info = PathPattern::example(field.extension);
+        QString error = folderError(folder);
+        const QString saveFolder = error.isEmpty() ? captureFolder(folder, field.edit->text().trimmed(), info, &error) : QString();
+        if (!error.isEmpty()) {
+            showError(error);
             return;
         }
-        // Where a capture taken now would be saved.
-        const QString saveFolder = field.expanded.isEmpty() ? folder : folder + u'/' + field.expanded;
-        example = saveFolder + u'/' + captureName(QDateTime::currentDateTime()) + u'.' + field.extension;
+        example = saveFolder + u'/' + info.fileName + u'.' + info.extension;
     } else {
         const S3Config s3 = formSettings().s3;
-        // Without an endpoint and bucket there is only the key to show.
         example = (s3.endpoint.isEmpty() || s3.bucket.isEmpty()) && s3.publicUrl.isEmpty() ? field.expanded
                                                                                            : Uploader::link(s3, field.expanded);
     }
+    field.icon->hide();
+    field.example->setForegroundRole(QPalette::PlaceholderText);
     // Zero-width spaces let a long path or link wrap at its slashes rather than widen the dialog.
     example.replace(u'/', u"/\u200B"_s);
     field.example->setText(tr("Example: %1").arg(example));

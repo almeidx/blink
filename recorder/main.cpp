@@ -3,6 +3,7 @@
 
 #include "audioencoder.h"
 #include "capture.h"
+#include "clock.h"
 #include "events.h"
 #include "framequeue.h"
 #include "mixer.h"
@@ -29,7 +30,6 @@ extern "C" {
 #include <signal.h>
 #include <sys/prctl.h>
 #include <sys/signalfd.h>
-#include <time.h>
 #include <unistd.h>
 
 namespace blink::recorder {
@@ -44,13 +44,6 @@ struct Arguments {
     VideoEncoder::Options video;
     std::string output;
 };
-
-int64_t monotonicNs()
-{
-    timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (ts.tv_sec * 1'000'000'000LL) + ts.tv_nsec;
-}
 
 template<typename T>
 bool parseNumber(std::string_view text, T &value)
@@ -179,7 +172,6 @@ int record(const Arguments &arguments, int signals)
 {
     Events events;
     if (!events.valid()) {
-        // control() would poll an invalid descriptor and never see a worker thread's failure.
         Events::emit(kEvError, "cannot create the event descriptor");
         return 1;
     }
@@ -250,13 +242,11 @@ int record(const Arguments &arguments, int signals)
         return fail(error);
     // Diagnostics only: frames go when the encoder cannot keep up, or is still opening when the first frames arrive.
     if (const uint64_t dropped = frames.dropped(); dropped > 0)
-        std::fputs(("blink-recorder: the encoder fell behind, " + std::to_string(dropped) + " frames dropped\n").c_str(), stderr);
+        diagnostic("the encoder fell behind, " + std::to_string(dropped) + " frames dropped");
     for (int source = 0; source < capture.audioSources(); ++source) {
         if (const Mixer::Resyncs resyncs = mixer.resyncs(source); resyncs.count > 0)
-            std::fputs(("blink-recorder: audio source " + std::to_string(source) + " re-synced " + std::to_string(resyncs.count)
-                        + " times, largest jump " + std::to_string(resyncs.largestFrames * 1000 / Mixer::kRate) + " ms\n")
-                           .c_str(),
-                       stderr);
+            diagnostic("audio source " + std::to_string(source) + " re-synced " + std::to_string(resyncs.count) + " times, largest jump "
+                       + std::to_string(resyncs.largestFrames * 1000 / Mixer::kRate) + " ms");
     }
     Events::emit(kEvFinished);
     return 0;
