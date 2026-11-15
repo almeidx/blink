@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2026-11-15
+
+- fix(library): show grouped captures after a full rescan
+- perf: hand captured screens over so they convert in place
+- refactor: settle the remaining shared rules found in review
+- refactor: untangle shared knowledge into single owners
+- chore: add url to PKGBUILD
+- chore: improve README
+
 ## [1.0.0] - 2026-11-03
 
 - feat(library): group screenshots and recordings by day, month or year

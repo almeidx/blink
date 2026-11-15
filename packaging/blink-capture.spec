@@ -1,6 +1,6 @@
 Name:           blink-capture
 # Version, Release and the changelog are updated by .github/scripts/bump-version.sh when a release is prepared.
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Fast screenshots and screen recordings for KDE Plasma
 License:        Apache-2.0
@@ -63,6 +63,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/blink.desktop
 %{_datadir}/icons/hicolor/*/apps/blink.svg
 
 %changelog
+* Sun Nov 15 2026 almeidx - 1.0.1-1
+- Update to 1.0.1
+
 * Tue Nov 03 2026 almeidx - 1.0.0-1
 - Update to 1.0.0
 
