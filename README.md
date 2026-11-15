@@ -14,15 +14,18 @@ Fast, native screenshot and screen recording tool for KDE Plasma, inspired by Sh
 
 ## Install
 
-[Releases](https://github.com/almeidx/blink/releases) have packages for Arch Linux and Fedora:
+[Releases](https://github.com/almeidx/blink/releases) have packages for Arch Linux and Fedora 44 and 45:
 
 ```sh
-sudo pacman -U blink-capture-*-x86_64.pkg.tar.zst # Arch
-sudo dnf install ./blink-capture-*.x86_64.rpm     # Fedora
+sudo pacman -U blink-capture-*-x86_64.pkg.tar.zst                 # Arch
+sudo dnf install ./blink-capture-*.fc$(rpm -E %fedora).x86_64.rpm # Fedora
 ```
 
 On Fedora, GPU encoding needs the
 [RPM Fusion hardware codecs](https://rpmfusion.org/Howto/Multimedia#Hardware_Accelerated_Codec).
+
+Each Fedora package only works on the release it was built for. Before upgrading Fedora, run
+`sudo dnf remove blink-capture`, then install the package for the new release.
 
 ## Usage
 

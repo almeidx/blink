@@ -46,10 +46,14 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # One package per supported Fedora release: each links that release's FFmpeg sonames, so it won't install on another.
   fedora:
-    name: Fedora
+    name: Fedora ${{ matrix.fedora }}
+    strategy:
+      matrix:
+        fedora: [44, 45]
     runs-on: ubuntu-latest
-    container: fedora:latest
+    container: fedora:${{ matrix.fedora }}
     steps:
       - name: Install rpm-build
         run: dnf -y install rpm-build 'dnf-command(builddep)'
@@ -75,6 +79,6 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: blink-fedora
+          name: blink-fedora-${{ matrix.fedora }}
           path: dist/*
           if-no-files-found: error
