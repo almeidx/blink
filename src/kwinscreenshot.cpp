@@ -209,7 +209,10 @@ void KWinScreenshot::call(const QString &method, QVariantList arguments, const O
                     ::close(fd);
                     capture.app = info ? appOf(*info) : QString();
                     return capture;
-                }).then(this, [done](const Capture &capture) { done(capture.image, capture.app, capture.error); });
+                }).then(this, [done](QFuture<Capture> future) {
+                    Capture capture = future.takeResult();
+                    done(std::move(capture.image), capture.app, capture.error);
+                });
             });
 }
 

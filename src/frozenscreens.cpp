@@ -96,25 +96,29 @@ void freezeScreens(KWinScreenshot &screenshot, QObject *context, FrozenScreens d
     pending->timer.start();
     for (qsizetype i = 0; i < screens.size(); ++i) {
         pending->screens[i].screen = screens[i];
-        screenshot.captureScreen(
-            screens[i]->name(), {}, [guard = QPointer(context), pending, i](const QImage &image, const QString &, const QString &error) {
-                if (++pending->captured == std::ssize(pending->screens))
-                    qCDebug(lcBlink) << "screens captured after" << pending->timer.elapsed() << "ms";
-                if (!guard)
-                    return;
-                if (!error.isEmpty()) {
-                    pending->error = error;
-                    if (--pending->remaining == 0)
-                        finish(*pending);
-                    return;
-                }
-                runInPool([image] { return prepare(image); }).then(guard.data(), [pending, i](std::pair<QImage, QImage> prepared) {
-                    pending->screens[i].image = std::move(prepared.first);
-                    pending->screens[i].dimmed = std::move(prepared.second);
-                    if (--pending->remaining == 0)
-                        finish(*pending);
-                });
-            });
+        screenshot.captureScreen(screens[i]->name(), {},
+                                 [guard = QPointer(context), pending, i](QImage image, const QString &, const QString &error) {
+                                     if (++pending->captured == std::ssize(pending->screens))
+                                         qCDebug(lcBlink) << "screens captured after" << pending->timer.elapsed() << "ms";
+                                     if (!guard)
+                                         return;
+                                     if (!error.isEmpty()) {
+                                         pending->error = error;
+                                         if (--pending->remaining == 0)
+                                             finish(*pending);
+                                         return;
+                                     }
+                                     // The only reference: the conversion from KWin's RGBX8888 runs in place instead of on a
+                                     // new 33 MB buffer.
+                                     runInPool([image = std::move(image)]() mutable {
+                                         return prepare(std::move(image));
+                                     }).then(guard.data(), [pending, i](std::pair<QImage, QImage> prepared) {
+                                         pending->screens[i].image = std::move(prepared.first);
+                                         pending->screens[i].dimmed = std::move(prepared.second);
+                                         if (--pending->remaining == 0)
+                                             finish(*pending);
+                                     });
+                                 });
     }
 }
 
