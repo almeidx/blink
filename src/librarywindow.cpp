@@ -50,6 +50,14 @@ public:
         viewport()->update();
     }
 
+    // KCategorizedView drops its groups on a reset and builds them only on rowsInserted() and layoutChanged(), so a
+    // grouped view would show none of the rows a reset brings (LibraryModel resets for large changes).
+    void reset() override
+    {
+        KCategorizedView::reset();
+        slotLayoutChanged();
+    }
+
 protected:
     void paintEvent(QPaintEvent *event) override
     {
