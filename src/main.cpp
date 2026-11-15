@@ -26,7 +26,7 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(u"blink"_s);
     QApplication::setApplicationVersion(QStringLiteral(BLINK_VERSION));
     QGuiApplication::setDesktopFileName(u"blink"_s);
-    QApplication::setWindowIcon(QIcon::fromTheme(u"blink"_s, QIcon(u":/icons/hicolor/scalable/apps/blink.svg"_s)));
+    QApplication::setWindowIcon(QIcon::fromTheme(QGuiApplication::desktopFileName(), QIcon(u":/icons/hicolor/scalable/apps/blink.svg"_s)));
     QApplication::setQuitOnLastWindowClosed(false); // lives in the tray
 
     QCommandLineParser parser;
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     }
     if (!bus.registerService(service)) {
         // Already running: hand the request over. Starting Blink again from the menu opens its settings.
-        const QDBusMessage call = QDBusMessage::createMethodCall(service, blink::App::kDBusPath, service,
+        const QDBusMessage call = QDBusMessage::createMethodCall(service, blink::App::kDBusPath, blink::App::dbusInterface(),
                                                                  method.isEmpty() ? u"showSettings"_s : QString(method));
         return bus.call(call).type() == QDBusMessage::ErrorMessage ? 1 : 0;
     }

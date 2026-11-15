@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QSaveFile>
 #include <QStandardPaths>
 
@@ -44,15 +45,17 @@ QString applyAutostart(bool enabled)
         qCDebug(lcBlink) << "autostart entry left alone:" << self << "is not" << BLINK_INSTALLED_PATH;
         return {};
     }
-    const QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + u"/autostart/blink.desktop"_s;
+    const QString desktopFile = QGuiApplication::desktopFileName();
+    const QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + u"/autostart/"_s + desktopFile + u".desktop"_s;
     if (!enabled) {
         QFile::remove(path);
         return {};
     }
     if (QFileInfo::exists(path))
         return {};
-    const QByteArray entry = "[Desktop Entry]\nType=Application\nName=Blink\nComment=Screenshots and screen recordings\nIcon=blink\nExec="
-                           + desktopExec(QCoreApplication::applicationFilePath()).toUtf8() + '\n';
+    const QByteArray entry = "[Desktop Entry]\nType=Application\nName=" + QGuiApplication::applicationDisplayName().toUtf8()
+                           + "\nComment=Screenshots and screen recordings\nIcon=" + desktopFile.toUtf8()
+                           + "\nExec=" + desktopExec(QCoreApplication::applicationFilePath()).toUtf8() + '\n';
     QDir().mkpath(QFileInfo(path).absolutePath());
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(entry) != entry.size() || !file.commit())

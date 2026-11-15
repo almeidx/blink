@@ -1,6 +1,6 @@
 #include "thumbnail.h"
 
-#include "events.h"
+#include "diagnostic.h"
 #include "ffmpeg.h"
 #include "recorderprotocol.h"
 
@@ -94,7 +94,7 @@ int thumbnail(int argc, char **argv)
     // URLs. The "file:" prefix keeps a colon in the path from reading as a protocol.
     AVDictionary *options = nullptr;
     av_dict_set(&options, "protocol_whitelist", "file", 0);
-    av_dict_set(&options, "format_whitelist", std::string(kThumbnailDemuxers).c_str(), 0);
+    av_dict_set(&options, "format_whitelist", kThumbnailDemuxers, 0);
     AVFormatContext *opened = nullptr;
     int error = avformat_open_input(&opened, ("file:" + std::string(argv[3])).c_str(), nullptr, &options);
     av_dict_free(&options);

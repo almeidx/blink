@@ -4,6 +4,7 @@
 #include "audioencoder.h"
 #include "capture.h"
 #include "clock.h"
+#include "diagnostic.h"
 #include "events.h"
 #include "framequeue.h"
 #include "mixer.h"
@@ -108,7 +109,6 @@ std::optional<Arguments> parse(int argc, char **argv, std::string &error)
         error = "missing " + std::string(kOptOutput);
         return std::nullopt;
     }
-    arguments.capture.fps = arguments.video.fps;
     return arguments;
 }
 
@@ -198,7 +198,7 @@ int record(const Arguments &arguments, int signals)
 
     if (std::string error = muxer.open(arguments.output); !error.empty())
         return fail(error);
-    if (std::string error = capture.start(arguments.capture); !error.empty())
+    if (std::string error = capture.start(arguments.capture, arguments.video.fps); !error.empty())
         return fail(error);
     if (capture.audioSources() > 0) {
         audio = std::make_unique<AudioEncoder>(mixer, muxer, events);

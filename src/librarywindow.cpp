@@ -155,7 +155,7 @@ public:
 // group are always next to each other, as KCategorizedView needs them: no sorting.
 class LibraryProxy final : public KCategorizedSortFilterProxyModel {
 public:
-    enum class Kind { All, Screenshots, Recordings }; // in the order of the window's menu
+    enum class Kind { All, Screenshots, Recordings };
     enum class Grouping { None, Day, Month, Year };
 
     using KCategorizedSortFilterProxyModel::KCategorizedSortFilterProxyModel;
@@ -246,9 +246,11 @@ LibraryWindow::LibraryWindow(const Settings &settings, QWidget *parent)
     resize(1000, 700);
 
     filter_->setSourceModel(model_);
-    kind_->addItems({tr("All"), tr("Screenshots"), tr("Recordings")});
-    connect(kind_, &QComboBox::currentIndexChanged, this, [this](int index) {
-        filter_->setKind(static_cast<LibraryProxy::Kind>(index));
+    kind_->addItem(tr("All"), QVariant::fromValue(LibraryProxy::Kind::All));
+    kind_->addItem(tr("Screenshots"), QVariant::fromValue(LibraryProxy::Kind::Screenshots));
+    kind_->addItem(tr("Recordings"), QVariant::fromValue(LibraryProxy::Kind::Recordings));
+    connect(kind_, &QComboBox::currentIndexChanged, this, [this] {
+        filter_->setKind(kind_->currentData().value<LibraryProxy::Kind>());
         updateEmptyText();
     });
     const QString remembered = QSettings().value(kGroupingKey).toString();

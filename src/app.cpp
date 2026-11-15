@@ -27,6 +27,7 @@
 #include <QIcon>
 #include <QImageReader>
 #include <QMenu>
+#include <QMetaClassInfo>
 #include <QMimeDatabase>
 #include <QSaveFile>
 #include <QSettings>
@@ -103,6 +104,11 @@ App::App() : screenshot_(new KWinScreenshot(this)), windows_(new WindowList(this
         }
         notifier_->notify(tr("Blink is in the system tray"), tr("Shortcuts can be changed in System Settings.") + keys);
     }
+}
+
+QString App::dbusInterface()
+{
+    return QLatin1StringView(staticMetaObject.classInfo(staticMetaObject.indexOfClassInfo("D-Bus Interface")).value());
 }
 
 App::~App() = default;

@@ -204,7 +204,7 @@ QWidget *SettingsDialog::createScreenshotsTab(const Settings &settings)
     screenshotSubfolder_ = {.target = PathPattern::Target::Subfolder,
                             .extension = u"png"_s,
                             .folder = screenshotFolder_,
-                            .fallback = Settings::kScreenshotLocation};
+                            .savedFolder = &Settings::screenshotFolder};
     const auto [subfolder, subfolderExample] = createPatternField(screenshotSubfolder_, settings.screenshotSubfolder, subfolderToolTip());
 
     // KWin only draws the shadow of a window together with its decoration.
@@ -234,7 +234,7 @@ QWidget *SettingsDialog::createRecordingTab(const Settings &settings)
     recordingSubfolder_ = {.target = PathPattern::Target::Subfolder,
                            .extension = u"mp4"_s,
                            .folder = recordingFolder_,
-                           .fallback = Settings::kRecordingLocation};
+                           .savedFolder = &Settings::recordingFolder};
     const auto [subfolder, subfolderExample] = createPatternField(recordingSubfolder_, settings.recordingSubfolder, subfolderToolTip());
 
     const RecordingOptions &recording = settings.recording;
@@ -527,7 +527,7 @@ void SettingsDialog::updateExample(PatternField &field)
     }
     QString example;
     if (field.folder) {
-        const QString folder = Settings::normalizeFolder(field.folder->text(), field.fallback);
+        const QString folder = formSettings().*field.savedFolder;
         const CaptureInfo info = PathPattern::example(field.extension);
         QString error = folderError(folder);
         const QString saveFolder = error.isEmpty() ? captureFolder(folder, field.edit->text().trimmed(), info, &error) : QString();
@@ -538,6 +538,7 @@ void SettingsDialog::updateExample(PatternField &field)
         example = saveFolder + u'/' + info.fileName + u'.' + info.extension;
     } else {
         const S3Config s3 = formSettings().s3;
+        // Without an endpoint and bucket there is only the key to show.
         example = (s3.endpoint.isEmpty() || s3.bucket.isEmpty()) && s3.publicUrl.isEmpty() ? field.expanded
                                                                                            : Uploader::link(s3, field.expanded);
     }

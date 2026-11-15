@@ -161,6 +161,7 @@ SelectionWindow::Decorations SelectionWindow::compute() const
         d.highlight = s.toDevice(index_, region) & bounds;
         if (!d.highlight.isEmpty())
             d.frame = d.highlight.adjusted(-border_, -border_, border_, border_);
+        // The size goes on the screen that has the selection's top left corner.
         if (s.screenAt(region.topLeft() + QPointF(0.01, 0.01)) == index_) {
             const QSize size = s.selectionSize(region);
             d.labelText = QString::number(size.width()) + u" × "_s + QString::number(size.height());

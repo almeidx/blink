@@ -96,7 +96,7 @@ inline constexpr int kDefaultFps = 60;
 inline constexpr int kThumbnailMaxSize = 1024;
 // The videos --thumbnail opens: the file suffixes the library lists as videos, and the FFmpeg demuxers for them.
 inline constexpr std::array<std::string_view, 4> kThumbnailSuffixes{"mp4", "mkv", "webm", "mov"};
-inline constexpr std::string_view kThumbnailDemuxers = "mov,mp4,matroska,webm";
+inline constexpr char kThumbnailDemuxers[] = "mov,mp4,matroska,webm";
 
 inline constexpr std::string_view kCmdStop = "stop";
 inline constexpr std::string_view kCmdAbort = "abort";

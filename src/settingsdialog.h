@@ -37,11 +37,11 @@ private:
         PathPattern::Target target = PathPattern::Target::ObjectKey;
         QString extension;           // of the example capture
         QLineEdit *folder = nullptr; // a subfolder's save folder, which its example starts with
-        QStandardPaths::StandardLocation fallback = QStandardPaths::PicturesLocation; // where `folder` goes when empty
+        QString Settings::*savedFolder = nullptr; // that folder as formSettings() has it
         QLineEdit *edit = nullptr;
         QLabel *icon = nullptr;
         QLabel *example = nullptr;
-        QString expanded = {}; // for the example; kept while the pattern is unchanged, so its random parts hold still
+        QString expanded = {}; // for the S3 example; kept while the pattern is unchanged, so its random parts hold still
         QString error = {};    // what is wrong with the pattern; OK and Apply are disabled while it is set
     };
 

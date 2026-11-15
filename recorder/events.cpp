@@ -8,14 +8,6 @@
 
 namespace blink::recorder {
 
-void diagnostic(std::string_view text)
-{
-    std::string line = "blink-recorder: ";
-    line += text;
-    line += '\n';
-    std::fputs(line.c_str(), stderr);
-}
-
 Events::Events() : fd_(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {}
 
 Events::~Events()

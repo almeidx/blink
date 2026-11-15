@@ -40,9 +40,10 @@ class App final : public QObject {
     Q_CLASSINFO("D-Bus Interface", "io.github.almeidx.Blink")
 
 public:
-    // Where the running Blink is on the session bus; its interface is the class info above.
+    // Where the running Blink is on the session bus.
     static constexpr QLatin1StringView kDBusService{"io.github.almeidx.Blink"};
     static constexpr QLatin1StringView kDBusPath{"/Blink"};
+    static QString dbusInterface(); // the class info above
 
     App();
     ~App() override;
@@ -56,7 +57,7 @@ public:
 
 private:
     struct Shortcut {
-        QAction *action;    // registered with KGlobalAccel under its text
+        QAction *action;    // registered with KGlobalAccel, which knows it by its object name
         QKeySequence key;   // the default
         QAction *menuEntry; // the tray menu entry that shows the key
     };

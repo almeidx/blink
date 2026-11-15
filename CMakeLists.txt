@@ -48,6 +48,7 @@ add_executable(blink-recorder
     recorder/audioencoder.cpp recorder/audioencoder.h
     recorder/capture.cpp recorder/capture.h
     recorder/clock.h
+    recorder/diagnostic.h
     recorder/events.cpp recorder/events.h
     recorder/ffmpeg.cpp recorder/ffmpeg.h
     recorder/framequeue.cpp recorder/framequeue.h
@@ -104,7 +105,7 @@ target_link_options(blink PRIVATE -Wl,--as-needed)
 target_compile_definitions(blink PRIVATE
     BLINK_VERSION="${BLINK_VERSION}"
     BLINK_RECORDER_PATH="${BLINK_RECORDER_PATH}"
-    # Where the package puts blink. Only that binary manages the start-at-login entry, see App::applyAutostart().
+    # Where the package puts blink. Only that binary manages the start-at-login entry, see applyAutostart() in src/autostart.cpp.
     BLINK_INSTALLED_PATH="${CMAKE_INSTALL_FULL_BINDIR}/blink"
     QT_NO_CAST_FROM_ASCII
     QT_NO_CAST_TO_ASCII

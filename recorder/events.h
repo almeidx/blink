@@ -9,9 +9,6 @@
 
 namespace blink::recorder {
 
-// One line on stderr, prefixed with the program name.
-void diagnostic(std::string_view text);
-
 class Events {
 public:
     Events();

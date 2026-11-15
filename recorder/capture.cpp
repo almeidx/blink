@@ -157,7 +157,7 @@ Capture::~Capture()
     pw_deinit();
 }
 
-std::string Capture::start(const Options &options)
+std::string Capture::start(const Options &options, int fps)
 {
     options_ = options;
     loop_ = pw_thread_loop_new("blink-pipewire", nullptr);
@@ -190,18 +190,23 @@ std::string Capture::start(const Options &options)
         return "cannot list PipeWire objects";
     pw_registry_add_listener(registry_, &registryListener_, &kRegistryEvents, this);
 
-    if (std::string error = connectVideo(options); !error.empty())
+    if (std::string error = connectVideo(options, fps); !error.empty())
         return error;
-    if (options.systemAudio) {
+    struct Wanted {
+        bool enabled;
+        bool sink;
+        const char *name;
+    };
+    const std::array<Wanted, Mixer::kMaxSources> wanted{{
+        {options.systemAudio, true, "system audio"},
+        {options.microphone, false, "microphone"},
+    }};
+    for (const Wanted &want : wanted) {
+        if (!want.enabled)
+            continue;
         AudioSource &source = audio_[static_cast<size_t>(audioSources_)];
-        source.name = "system audio";
-        if (connectAudio(source, true))
-            ++audioSources_;
-    }
-    if (options.microphone) {
-        AudioSource &source = audio_[static_cast<size_t>(audioSources_)];
-        source.name = "microphone";
-        if (connectAudio(source, false))
+        source.name = want.name;
+        if (connectAudio(source, want.sink))
             ++audioSources_;
     }
     if (pw_thread_loop_start(loop_) < 0)
@@ -209,7 +214,7 @@ std::string Capture::start(const Options &options)
     return {};
 }
 
-std::string Capture::connectVideo(const Options &options)
+std::string Capture::connectVideo(const Options &options, int fps)
 {
     // WirePlumber would otherwise link a missing or vanished target to whatever other video source exists.
     pw_properties *props = pw_properties_new(PW_KEY_MEDIA_TYPE, "Video", PW_KEY_MEDIA_CATEGORY, "Capture", PW_KEY_MEDIA_ROLE, "Screen",
@@ -233,7 +238,7 @@ std::string Capture::connectVideo(const Options &options)
     std::array<uint8_t, 1024> buffer{};
     spa_pod_builder b{};
     spa_pod_builder_init(&b, buffer.data(), buffer.size());
-    const spa_pod *params[] = {videoFormat(b, options.fps)};
+    const spa_pod *params[] = {videoFormat(b, fps)};
     // Without RT_PROCESS the frames are copied on the PipeWire thread loop, not on the data thread that also runs
     // the audio streams.
     const int error = pw_stream_connect(
@@ -251,7 +256,7 @@ bool Capture::connectAudio(AudioSource &source, bool sink)
     pw_properties *props = pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Capture", nullptr);
     if (sink)
         pw_properties_set(props, PW_KEY_STREAM_CAPTURE_SINK, "true");
-    source.stream = pw_stream_new(core_, sink ? "blink-recorder system audio" : "blink-recorder microphone", props);
+    source.stream = pw_stream_new(core_, (std::string("blink-recorder ") + source.name).c_str(), props);
     if (!source.stream) {
         Events::emit(kEvWarning, std::string("cannot record the ") + source.name);
         return false;

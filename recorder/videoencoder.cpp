@@ -1,6 +1,7 @@
 #include "videoencoder.h"
 
 #include "clock.h"
+#include "diagnostic.h"
 #include "events.h"
 #include "framequeue.h"
 #include "muxer.h"
@@ -167,6 +168,7 @@ void VideoEncoder::run()
         if (!encode(frame.get()))
             return;
     }
+    // Stopped before the first frame: no header was written and the encoder never saw a frame.
     if (!muxer_.started())
         return;
     // KWin only sends damaged frames: without this, a still screen at the end would be cut from the video.
@@ -308,8 +310,7 @@ std::string VideoEncoder::openCodec(const char *name, const FrameQueue::Format &
     // NVENC converts RGB input with the BT.601 matrix (and says so in the bitstream); the container must agree.
     codec_->colorspace = isRgb(format) ? AVCOL_SPC_BT470BG : AVCOL_SPC_BT709;
     codec_->color_range = AVCOL_RANGE_MPEG;
-    if (muxer_.globalHeader())
-        codec_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    muxer_.prepare(codec_.get());
     if (sink_) {
         codec_->hw_frames_ctx = av_buffer_ref(av_buffersink_get_hw_frames_ctx(sink_));
         if (!codec_->hw_frames_ctx) {
@@ -578,7 +579,7 @@ bool VideoEncoder::drain()
             events_.fail("cannot encode video: " + avError(error));
             return false;
         }
-        if (std::string message = muxer_.write(packet_.get(), Muxer::Stream::Video, codec_->time_base); !message.empty()) {
+        if (std::string message = muxer_.write(packet_.get(), Muxer::Stream::Video); !message.empty()) {
             events_.fail(message);
             return false;
         }

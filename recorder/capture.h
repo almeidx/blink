@@ -6,7 +6,6 @@
 
 #include "ffmpeg.h"
 #include "mixer.h"
-#include "recorderprotocol.h"
 
 #include <pipewire/pipewire.h>
 #include <spa/buffer/meta.h>
@@ -27,7 +26,6 @@ public:
     struct Options {
         uint64_t target = 0;
         bool bySerial = true; // `target` is an object serial (64-bit), else a node id (32-bit)
-        int fps = kDefaultFps;
         bool systemAudio = false;
         bool microphone = false;
     };
@@ -38,8 +36,8 @@ public:
     Capture &operator=(const Capture &) = delete;
 
     // Connects the streams and starts PipeWire's thread; returns an error message on failure. Audio sources that
-    // cannot connect only produce a warning.
-    std::string start(const Options &options);
+    // cannot connect only produce a warning. The screen cast is capped at `fps` frames per second.
+    std::string start(const Options &options, int fps);
     int audioSources() const { return audioSources_; }
     // No video frames after this returns.
     void stopVideo();
@@ -54,7 +52,7 @@ private:
         std::atomic<bool> usable = false; // the negotiated format is what the mixer takes; read on the data thread
     };
 
-    std::string connectVideo(const Options &options);
+    std::string connectVideo(const Options &options, int fps);
     bool connectAudio(AudioSource &source, bool sink);
 
     static void onCoreError(void *data, uint32_t id, int seq, int res, const char *message);

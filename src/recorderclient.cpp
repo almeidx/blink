@@ -29,7 +29,7 @@ QImage videoThumbnail(const QString &path, int size, const std::atomic_bool &sto
     QElapsedTimer timer;
     timer.start();
     while (!process.waitForFinished(100)) {
-        if (process.state() == QProcess::NotRunning)
+        if (process.state() == QProcess::NotRunning) // it did not start
             return {};
         if (stopping || timer.hasExpired(kThumbnailTimeoutMs)) {
             process.kill();

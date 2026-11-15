@@ -204,9 +204,14 @@ void failLater(QObject *context, Uploader::Callback done, const QString &error)
     QMetaObject::invokeMethod(context, [done = std::move(done), error] { done({{}, error}); }, Qt::QueuedConnection);
 }
 
+bool signsPayload(const Object &object)
+{
+    return !object.https;
+}
+
 QByteArray payloadHash(const Object &object, const QByteArray &body)
 {
-    return object.https ? kUnsignedPayload : sha256Hex(body);
+    return signsPayload(object) ? sha256Hex(body) : kUnsignedPayload;
 }
 
 QFuture<QByteArray> hashFile(const QString &path)
@@ -248,7 +253,7 @@ void Uploader::uploadFile(const S3Config &config, const QString &path, const QSt
     };
 
     Object object = locate(config, key);
-    if (object.https) {
+    if (!signsPayload(object)) {
         send(object, kUnsignedPayload);
         return;
     }

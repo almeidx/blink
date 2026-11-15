@@ -62,8 +62,7 @@ std::string AudioEncoder::open()
     av_channel_layout_default(&codec_->ch_layout, Mixer::kChannels);
     codec_->bit_rate = kBitRate;
     codec_->time_base = {1, Mixer::kRate};
-    if (muxer_.globalHeader())
-        codec_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    muxer_.prepare(codec_.get());
     int error = avcodec_open2(codec_.get(), codec, nullptr);
     if (error < 0)
         return std::string("cannot open ") + codec->name + ": " + avError(error);
@@ -181,7 +180,7 @@ bool AudioEncoder::drain()
             events_.fail("cannot encode audio: " + avError(error));
             return false;
         }
-        if (std::string message = muxer_.write(packet_.get(), Muxer::Stream::Audio, codec_->time_base); !message.empty()) {
+        if (std::string message = muxer_.write(packet_.get(), Muxer::Stream::Audio); !message.empty()) {
             events_.fail(message);
             return false;
         }
